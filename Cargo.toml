@@ -1,0 +1,11 @@
+[package]
+name = "rust-myscript"
+version = "0.1.0"
+authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
+
+[dependencies]
+log = "0.4.1"
+env_logger = "0.5.6"
+toml = "0.4.5"
+serde = "1.0.33"
+serde_derive = "1.0.33"
