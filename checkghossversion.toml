@@ -1,0 +1,37 @@
+[github]
+host = "https://api.github.com/graphql"
+
+[[oss]]
+owner ="bumptech"
+name = "glide"
+version = "v4.6.1"
+
+[[oss]]
+owner = "google"
+name = "dagger"
+version = "2.14.1"
+
+[[oss]]
+owner = "tbroyer"
+name = "gradle-errorprone-plugin"
+version = "v0.0.13"
+
+[[oss]]
+owner = "google"
+name = "error-prone"
+version = "v2.2.0"
+
+[[oss]]
+owner = "square"
+name = "leakcanary"
+version = "v1.5.4"
+
+[[oss]]
+owner = "ReactiveX"
+name = "RxJava"
+version = "2.1.12"
+
+[[oss]]
+owner = "ReactiveX"
+name = "RxAndroid"
+version = "2.0.2"
