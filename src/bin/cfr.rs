@@ -1,14 +1,8 @@
 extern crate env_logger;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate serde_derive;
-extern crate toml;
 
 use std::env::Args;
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
 
 fn main() {
     env_logger::init();
