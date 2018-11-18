@@ -17,14 +17,14 @@ fn main() {
     debug!("input {:?}", file_path);
 
     let history_file = File::open(&file_path).unwrap();
-    let mut lines = BufReader::new(&history_file).lines().enumerate();
+    let mut lines = BufReader::new(&history_file).lines();
 
-    let mut trimed: Vec<String> = vec!();
+    let mut trimed: Vec<String> = Vec::new();
     let mut trim_count = 0;
     loop {
         match lines.next() {
-            Some((num, line)) => {
-                debug!("size: {} result: {:?}", num, line);
+            Some(line) => {
+                debug!("result: {:?}", line);
                 let a = line.unwrap();
                 if let Some(index) = trimed.iter().position(|entity| &a == entity) {
                     debug!("contains: {}", index);
@@ -39,8 +39,8 @@ fn main() {
 
     debug!("trim_count: {}, len: {}", trim_count, trimed.len());
 
-    std::fs::copy(file_path.as_path(), generate_backup_path(file_path.as_path())).unwrap();
-    let out_file = File::create(file_path.as_path()).unwrap();
+    std::fs::copy(&file_path, generate_backup_path(&file_path)).unwrap();
+    let out_file = File::create(&file_path).unwrap();
     let mut writer = BufWriter::new(out_file);
     for entity in trimed.iter() {
         writeln!(&mut writer, "{}", entity).unwrap();
