@@ -9,7 +9,6 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate toml;
 
-use std::env::Args;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -132,13 +131,10 @@ fn main() {
 }
 
 fn retrieve_releases(host: &str, github_token: &str, owner: &str, name: &str) -> ResultBody {
-    use reqwest::header::Authorization;
-    use reqwest::header::Bearer;
-
     let mut client_builder = reqwest::ClientBuilder::new();
 
     if let Some(proxy) = get_proxy() {
-        client_builder.proxy(reqwest::Proxy::https(&proxy).unwrap());
+        client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy).unwrap());
     }
 
     let graphql_release_string = match load_graphql_release_string() {
@@ -152,7 +148,7 @@ fn retrieve_releases(host: &str, github_token: &str, owner: &str, name: &str) ->
 
     client_builder.build().unwrap()
         .post(host)
-        .header(Authorization(Bearer { token: github_token.to_string() }))
+        .bearer_auth(github_token)
         .body(json!({
             "query": graphql_release_string,
             "variables": {
