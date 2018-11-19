@@ -1,3 +1,4 @@
+extern crate dotenv;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
@@ -51,6 +52,7 @@ impl std::fmt::Display for IllegalFormatError {
 }
 
 fn main() {
+    dotenv::dotenv().ok();
     env_logger::init();
     info!("Hello");
 

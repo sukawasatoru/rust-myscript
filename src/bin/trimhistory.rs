@@ -1,3 +1,4 @@
+extern crate dotenv;
 extern crate chrono;
 extern crate env_logger;
 extern crate getopts;
@@ -9,6 +10,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 fn main() {
+    dotenv::dotenv().ok();
     env_logger::init();
 
     info!("Hello");

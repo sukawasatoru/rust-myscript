@@ -1,8 +1,10 @@
+extern crate dotenv;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
 
 fn main() {
+    dotenv::dotenv().ok();
     env_logger::init();
 
     info!("Hello");

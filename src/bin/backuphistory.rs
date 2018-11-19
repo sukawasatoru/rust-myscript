@@ -4,6 +4,7 @@
 //! git add .
 //! git commit -m "update"
 
+extern crate dotenv;
 extern crate env_logger;
 extern crate getopts;
 #[macro_use]
@@ -20,6 +21,7 @@ struct Config {
 }
 
 fn main() {
+    dotenv::dotenv().ok();
     env_logger::init();
     info!("Hello");
 
