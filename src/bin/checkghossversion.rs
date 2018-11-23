@@ -14,6 +14,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
+include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
+
 #[derive(Debug, Deserialize)]
 struct GithubOss {
     owner: String,
@@ -139,12 +141,7 @@ fn retrieve_releases(host: &str, github_token: &str, owner: &str, name: &str) ->
         client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy).unwrap());
     }
 
-    let graphql_release_string = match load_graphql_release_string() {
-        Some(string) => string,
-        None => {
-            panic!("need graphql_release_string");
-        }
-    };
+    let graphql_release_string = load_graphql_release_string();
 
     debug!("graphql_release={}", graphql_release_string);
 
@@ -207,38 +204,8 @@ fn get_config_name() -> String {
     std::env::current_exe().unwrap().file_stem().unwrap().to_str().unwrap().to_string() + ".toml"
 }
 
-fn load_graphql_release_string() -> Option<String> {
-    let file_path = match get_graphql_release_txt_path() {
-        Some(path) => path,
-        None => {
-            return None;
-        }
-    };
-
-    let mut file = File::open(file_path).unwrap();
-    let mut file_string = String::new();
-    file.read_to_string(&mut file_string).unwrap();
-
-    Some(file_string)
-}
-
-fn get_graphql_release_txt_path() -> Option<PathBuf> {
-    let name = "graphql_release.txt";
-
-    let mut current_path = std::env::current_dir().unwrap();
-    current_path.push(name);
-
-    if current_path.exists() {
-        return Some(current_path);
-    }
-
-    let mut exe_path = get_exe_path();
-    exe_path.push(name);
-
-    match exe_path.exists() {
-        true => Some(exe_path),
-        false => None,
-    }
+fn load_graphql_release_string() -> &'static str {
+    get_checkghossversion_string()
 }
 
 fn get_proxy() -> Option<String> {
