@@ -77,6 +77,7 @@ fn main() {
         }
     };
     debug!("list={:?}", oss_list);
+    debug!("graphql_release={}", load_graphql_release_string());
 
     for oss in &oss_list.oss {
         let result = retrieve_releases(&oss_list.github.host, &ghtoken, &oss.owner, &oss.name);
@@ -112,15 +113,11 @@ fn retrieve_releases(host: &str, github_token: &str, owner: &str, name: &str) ->
         client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy).unwrap());
     }
 
-    let graphql_release_string = load_graphql_release_string();
-
-    debug!("graphql_release={}", graphql_release_string);
-
     client_builder.build().unwrap()
         .post(host)
         .bearer_auth(github_token)
         .body(json!({
-            "query": graphql_release_string,
+            "query": load_graphql_release_string(),
             "variables": {
                 "owner": owner,
                 "name": name

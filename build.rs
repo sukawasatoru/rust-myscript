@@ -13,10 +13,9 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let checkghossversion_token_path = Path::new(&out_dir).join("checkghossversion_token.rs");
     let mut checkghossversion_file = File::create(&checkghossversion_token_path).unwrap();
-    // TODO: r#.
-    checkghossversion_file.write_all(&format!("
+    checkghossversion_file.write_all(&format!(r#"
 pub fn get_checkghossversion_string() -> &'static str {{
-    \"{}\"
-}}", &graphql_release).into_bytes()).unwrap();
+    "{}"
+}}"#, &graphql_release).into_bytes()).unwrap();
 }
 
