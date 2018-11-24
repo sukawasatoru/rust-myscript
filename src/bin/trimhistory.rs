@@ -1,5 +1,4 @@
 extern crate dotenv;
-extern crate chrono;
 extern crate env_logger;
 extern crate getopts;
 #[macro_use]
@@ -7,15 +6,42 @@ extern crate log;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use getopts::Options;
+
+#[derive(Debug)]
+struct Config {
+    help: bool,
+    backup_path: Option<PathBuf>,
+    history_path: Option<PathBuf>,
+}
 
 fn main() {
+    use std::env;
+    use std::process::exit;
+
     dotenv::dotenv().ok();
     env_logger::init();
 
     info!("Hello");
 
-    let file_path = get_history_path();
+    let options = generate_options();
+    let config = parse_options(&options, &env::args().collect::<Vec<_>>());
+    debug!("config: {:?}", config);
+    if need_to_show_help(&config) {
+        print_help(&options, env::current_exe().unwrap().file_stem().unwrap().to_str().unwrap());
+        exit(if config.help {
+            0
+        } else {
+            1
+        });
+    }
+
+    let file_path = match config.history_path {
+        Some(path) => path,
+        None => unreachable!(),
+    };
     debug!("input {:?}", file_path);
 
     let history_file = File::open(&file_path).unwrap();
@@ -41,7 +67,9 @@ fn main() {
 
     debug!("trim_count: {}, len: {}", trim_count, trimed.len());
 
-    std::fs::copy(&file_path, generate_backup_path(&file_path)).unwrap();
+    if let Some(backup_path) = config.backup_path {
+        std::fs::copy(&file_path, backup_path).unwrap();
+    }
     let out_file = File::create(&file_path).unwrap();
     let mut writer = BufWriter::new(out_file);
     for entity in trimed.iter() {
@@ -52,16 +80,31 @@ fn main() {
     info!("Bye");
 }
 
-fn get_history_path() -> PathBuf {
-    let options = getopts::Options::new();
-    let args = std::env::args().collect::<Vec<String>>();
-    let matches = options.parse(&args[1..]).unwrap();
-    std::path::Path::new(matches.free.get(0).unwrap()).to_path_buf()
+fn generate_options() -> Options {
+    let mut options = getopts::Options::new();
+    options.optflag("h", "help", "Show help")
+        .optopt("b", "backup", "Backup a FILE to specified path",
+                "-b ~/.bash_history$(date +%Y%m%d-%H%M%S)");
+    options
 }
 
-fn generate_backup_path(path: &Path) -> PathBuf {
-    let mut file_name = path.file_name().unwrap().to_os_string();
-    let now = chrono::Local::now();
-    file_name.push(now.format(".%Y%m%d-%H%M%S").to_string());
-    path.with_file_name(&file_name)
+fn parse_options(options: &Options, args: &[String]) -> Config {
+    use std::path::Path;
+    let matches = options.parse(&args[1..]).unwrap();
+
+    Config {
+        help: matches.opt_present("h"),
+        backup_path: matches.opt_str("b")
+            .map(|entry| Path::new(&entry).to_path_buf()),
+        history_path: matches.free.first()
+            .map(|entry| Path::new(entry).to_path_buf()),
+    }
+}
+
+fn need_to_show_help(config: &Config) -> bool {
+    config.help || (config.backup_path.is_none() && config.history_path.is_none())
+}
+
+fn print_help(options: &Options, program: &str) {
+    println!("{}", options.usage(&format!("Usage: {} [Options] FILE", program)));
 }
