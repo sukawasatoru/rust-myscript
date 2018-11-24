@@ -6,29 +6,38 @@
 
 extern crate dotenv;
 extern crate env_logger;
-extern crate getopts;
 #[macro_use]
 extern crate log;
+extern crate structopt;
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
-#[derive(Debug)]
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "backuphistory")]
 struct Config {
-    source: String,
-    target: String,
+    #[structopt(short = "s", long = "source", help = "e.g. -s ~/.bash_history", parse(from_os_str))]
+    source: PathBuf,
+
+    #[structopt(short = "t", long = "target", help = "e.g. -t ~/git-repo.git", parse(from_os_str))]
+    target: PathBuf,
+
+    #[structopt(short = "m", long = "message", help = "e.g. -m commit_message")]
     message: Option<String>,
 }
 
 fn main() {
     dotenv::dotenv().ok();
     env_logger::init();
+
     info!("Hello");
 
-    let config = get_config().unwrap();
+    let config: Config = Config::from_args();
     debug!("config={:?}", config);
-    let source = Path::new(&config.source);
-    let target = Path::new(&config.target);
+    let source = config.source;
+    let target = config.target;
     if !source.exists() {
         println!("failed to resolve source: {:?}", target);
         return;
@@ -72,23 +81,4 @@ fn main() {
         .expect("failed to wait to commit");
 
     info!("Bye");
-}
-
-fn get_config() -> Result<Config, String> {
-    let mut options = getopts::Options::new();
-    options.reqopt("s", "source", "", "-s ~/.bash_history")
-        .reqopt("t", "targetdir", "", "-t ~/git-repo.git")
-        .optopt("m", "message", "", "-m commit_message");
-
-    let args = std::env::args().collect::<Vec<String>>();
-    let matches = match options.parse(&args[1..]) {
-        Ok(result) => result,
-        Err(e) => return Err(e.to_string()),
-    };
-
-    Ok(Config {
-        source: matches.opt_str("s").unwrap(),
-        target: matches.opt_str("t").unwrap(),
-        message: matches.opt_str("m"),
-    })
 }
