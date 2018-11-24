@@ -36,11 +36,6 @@ struct GithubOssConfig {
 }
 
 #[derive(Debug, Deserialize)]
-struct ResultViewer {
-    login: String,
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ResultRelease {
     name: String,
