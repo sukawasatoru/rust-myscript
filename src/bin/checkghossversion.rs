@@ -22,6 +22,7 @@ include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 struct GithubOss {
     repo: String,
     version: String,
+    prerelease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,7 +84,8 @@ fn main() {
         let result_list = result_list["data"]["repository"]["releases"]["nodes"].take();
         let result_list = serde_json::from_value::<Vec<ResultRelease>>(result_list).unwrap();
         let stable_list = result_list.iter()
-            .filter(|entry| !entry.is_draft && !entry.is_prerelease)
+            .filter(|entry| !entry.is_draft &&
+                ((!entry.is_prerelease) || (oss.prerelease && entry.is_prerelease)))
             .take(1)
             .collect::<Vec<_>>();
         match stable_list.first() {
