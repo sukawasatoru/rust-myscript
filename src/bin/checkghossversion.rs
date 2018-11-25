@@ -13,14 +13,14 @@ extern crate toml;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+
 use serde_json::Value;
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
 #[derive(Debug, Deserialize)]
 struct GithubOss {
-    owner: String,
-    name: String,
+    repo: String,
     version: String,
 }
 
@@ -52,6 +52,8 @@ struct ResultTag {
 }
 
 fn main() {
+    use std::process::exit;
+
     dotenv::dotenv().ok();
     env_logger::init();
     info!("Hello");
@@ -60,7 +62,7 @@ fn main() {
         Some(token) => token,
         None => {
             println!("need github token");
-            return;
+            exit(1);
         }
     };
 
@@ -68,14 +70,14 @@ fn main() {
         Some(list) => list,
         None => {
             println!("need oss list");
-            return;
+            exit(1);
         }
     };
     debug!("list={:?}", oss_list);
     debug!("graphql_release={}", load_graphql_release_string());
 
     for oss in &oss_list.oss {
-        let result = retrieve_releases(&oss_list.github.host, &ghtoken, &oss.owner, &oss.name);
+        let result = retrieve_releases(&oss_list.github.host, &ghtoken, &oss);
         debug!("result={}", result);
         let mut result_list = serde_json::from_str::<Value>(&result).unwrap();
         let result_list = result_list["data"]["repository"]["releases"]["nodes"].take();
@@ -87,21 +89,23 @@ fn main() {
         match stable_list.first() {
             Some(release) => {
                 match oss.version == release.tag.name {
-                    true => println!("latest: name={}/{} tag={}",
-                                     oss.owner, oss.name, release.tag.name),
-                    false => println!("new version was found: name={}/{} current={} latest={} url={}",
-                                      oss.owner, oss.name, oss.version, release.tag.name,
-                                      release.url),
+                    true => println!("latest: repo={} tag={}", oss.repo, release.tag.name),
+                    false => println!(
+                        "new version was found: repo={} current={} latest={} url={}",
+                        oss.repo, oss.version, release.tag.name, release.url),
                 }
             }
-            None => panic!("TODO"),
+            None => panic!("TODO: support tag"),
         }
     }
 
     info!("Bye");
 }
 
-fn retrieve_releases(host: &str, github_token: &str, owner: &str, name: &str) -> String {
+fn retrieve_releases(host: &str, github_token: &str, oss: &GithubOss) -> String {
+    let token: Vec<&str> = oss.repo.split_terminator('/').collect();
+    let owner = token[0];
+    let name = token[1];
     let mut client_builder = reqwest::ClientBuilder::new();
 
     if let Some(proxy) = get_proxy() {
