@@ -8,15 +8,24 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
+extern crate structopt;
 extern crate toml;
 
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use structopt::StructOpt;
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "checkghossversion")]
+struct Opt {
+    #[structopt(name = "FILE", help = "input", parse(from_os_str))]
+    filename: PathBuf,
+}
 
 #[derive(Debug, Deserialize)]
 struct GithubOss {
@@ -59,6 +68,9 @@ fn main() {
     env_logger::init();
     info!("Hello");
 
+    let opt: Opt = Opt::from_args();
+    debug!("opt: {:?}", opt);
+
     let ghtoken = match get_github_token() {
         Some(token) => token,
         None => {
@@ -67,7 +79,7 @@ fn main() {
         }
     };
 
-    let oss_list = match load_config() {
+    let oss_list = match load_config(&opt.filename) {
         Some(list) => list,
         None => {
             println!("need oss list");
@@ -134,43 +146,11 @@ fn get_github_token() -> Option<String> {
         .unwrap_or(None)
 }
 
-fn load_config() -> Option<GithubOssConfig> {
-    let file_path = match get_config_path() {
-        Some(path) => path,
-        None => {
-            return None;
-        }
-    };
-
+fn load_config(file_path: &Path) -> Option<GithubOssConfig> {
     let mut oss_list_file = File::open(file_path).unwrap();
     let mut oss_list_string = String::new();
     oss_list_file.read_to_string(&mut oss_list_string).unwrap();
     Some(toml::from_str(&oss_list_string).unwrap())
-}
-
-fn get_config_path() -> Option<PathBuf> {
-    let mut current_path = std::env::current_dir().unwrap();
-    current_path.push(get_config_name());
-
-    if current_path.exists() {
-        return Some(current_path);
-    }
-
-    let mut exe_path = get_exe_path();
-    exe_path.push(get_config_name());
-
-    match exe_path.exists() {
-        true => Some(exe_path),
-        false => None,
-    }
-}
-
-fn get_exe_path() -> PathBuf {
-    std::env::current_exe().unwrap().parent().unwrap().to_owned()
-}
-
-fn get_config_name() -> String {
-    std::env::current_exe().unwrap().file_stem().unwrap().to_str().unwrap().to_string() + ".toml"
 }
 
 fn load_graphql_release_string() -> &'static str {
