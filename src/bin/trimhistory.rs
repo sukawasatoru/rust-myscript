@@ -44,13 +44,14 @@ fn main() {
         match lines.next() {
             Some(line) => {
                 debug!("result: {:?}", line);
-                let a = line.unwrap();
-                if let Some(index) = trimed.iter().position(|entity| &a == entity) {
+                let result = line.unwrap();
+                let trimmed_line = result.trim();
+                if let Some(index) = trimed.iter().position(|entity| trimmed_line == entity) {
                     debug!("contains: {}", index);
                     trimed.remove(index);
                     trim_count += 1;
                 }
-                trimed.push(a);
+                trimed.push(trimmed_line.to_owned());
             }
             None => break,
         }
