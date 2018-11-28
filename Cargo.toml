@@ -6,6 +6,7 @@ authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 [dependencies]
 log = "0.4.6"
 env_logger = "0.6.0"
+directories = "1.0.2"
 dotenv = "0.13.0"
 reqwest = "0.9.5"
 serde = "1.0.80"
