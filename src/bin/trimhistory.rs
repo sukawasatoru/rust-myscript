@@ -36,35 +36,44 @@ fn main() {
     debug!("input {:?}", file_path);
 
     let history_file = File::open(&file_path).unwrap();
-    let mut lines = BufReader::new(&history_file).lines();
-
-    let mut trimed: Vec<String> = Vec::new();
+    let mut buffer = BufReader::new(&history_file);
+    let mut line = String::new();
+    let mut trimmed = Vec::new();
     let mut trim_count = 0;
     loop {
-        match lines.next() {
-            Some(line) => {
-                debug!("result: {:?}", line);
-                let result = line.unwrap();
-                let trimmed_line = result.trim();
-                if let Some(index) = trimed.iter().position(|entity| trimmed_line == entity) {
-                    debug!("contains: {}", index);
-                    trimed.remove(index);
-                    trim_count += 1;
+        match buffer.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if line.ends_with("\n") {
+                    line.pop();
+                    if line.ends_with("\r") {
+                        line.pop();
+                    }
                 }
-                trimed.push(trimmed_line.to_owned());
+                debug!("result: {:?}", line);
+                {
+                    let trimmed_line = line.trim();
+                    if let Some(index) = trimmed.iter().position(|entity| trimmed_line == entity) {
+                        debug!("contains: {}", index);
+                        trimmed.remove(index);
+                        trim_count += 1;
+                    }
+                    trimmed.push(trimmed_line.to_owned());
+                }
+                line.clear();
             }
-            None => break,
+            Err(e) => panic!(e),
         }
     }
 
-    debug!("trim_count: {}, len: {}", trim_count, trimed.len());
+    info!("trim_count: {}, len: {}", trim_count, trimmed.len());
 
     if let Some(backup_path) = opt.backup_path {
         std::fs::copy(&file_path, backup_path).unwrap();
     }
     let out_file = File::create(&file_path).unwrap();
     let mut writer = BufWriter::new(out_file);
-    for entity in trimed.iter() {
+    for entity in trimmed.iter() {
         writeln!(&mut writer, "{}", entity).unwrap();
     }
     writer.flush().unwrap();
