@@ -17,14 +17,25 @@ use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 #[structopt(name = "trimhistory")]
 struct Opt {
-    #[structopt(
-    short = "b", long = "backup", help = "Backup a FILE to specified path",
-    parse(from_os_str)
-    )]
-    backup_path: Option<PathBuf>,
+    #[structopt(subcommand)]
+    cmd: Command,
+}
 
-    #[structopt(name = "FILE", help = "history file", parse(from_os_str))]
-    history_path: PathBuf,
+#[derive(StructOpt, Debug)]
+enum Command {
+    #[structopt(name = "trim")]
+    Trim {
+        #[structopt(
+        short = "b", long = "backup", help = "Backup a FILE to specified path",
+        parse(from_os_str)
+        )]
+        backup_path: Option<PathBuf>,
+
+        #[structopt(name = "FILE", help = "history file", parse(from_os_str))]
+        history_path: PathBuf,
+    },
+    #[structopt(name = "show")]
+    Show {},
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -57,7 +68,7 @@ impl Statistics {
     fn find_command(&self, command: &str) -> Result<usize, ()> {
         for i in 0..self.entries.len() {
             if self.entries[i].command == command {
-                return Ok(i)
+                return Ok(i);
             }
         }
         Err(())
@@ -73,8 +84,19 @@ fn main() {
     let opt: Opt = Opt::from_args();
     debug!("config: {:?}", opt);
 
-    let file_path = opt.history_path;
-    debug!("input {:?}", file_path);
+    match opt.cmd {
+        Command::Trim {
+            backup_path,
+            history_path,
+        } => trim(history_path, backup_path),
+        Command::Show {} => show(),
+    }
+
+    info!("Bye");
+}
+
+fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) {
+    debug!("input {:?}", history_path);
     let project_dirs = directories::ProjectDirs::from(
         "jp", "tinyport", "trimhistory").unwrap();
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
@@ -85,7 +107,7 @@ fn main() {
         Statistics::new()
     };
 
-    let history_file = File::open(&file_path).unwrap();
+    let history_file = File::open(&history_path).unwrap();
     let mut buffer = BufReader::new(&history_file);
     let mut line = String::new();
     let mut trimmed = Vec::new();
@@ -119,10 +141,10 @@ fn main() {
 
     info!("trim_count: {}, len: {}", trim_count, trimmed.len());
 
-    if let Some(backup_path) = opt.backup_path {
-        std::fs::copy(&file_path, backup_path).unwrap();
+    if let Some(backup_path) = backup_path {
+        std::fs::copy(&history_path, backup_path).unwrap();
     }
-    let out_file = File::create(&file_path).unwrap();
+    let out_file = File::create(&history_path).unwrap();
     let mut writer = BufWriter::new(out_file);
     for entity in trimmed.iter() {
         writeln!(&mut writer, "{}", entity).unwrap();
@@ -130,8 +152,10 @@ fn main() {
     writer.flush().unwrap();
 
     store_statistics(&statistics_path, &statistics).unwrap();
+}
 
-    info!("Bye");
+fn show() {
+    panic!("TODO");
 }
 
 fn load_statistics(path: &Path) -> Result<Statistics, ()> {
