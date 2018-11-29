@@ -84,18 +84,19 @@ fn main() {
     let opt: Opt = Opt::from_args();
     debug!("config: {:?}", opt);
 
-    match opt.cmd {
+    let result = match opt.cmd {
         Command::Trim {
             backup_path,
             history_path,
         } => trim(history_path, backup_path),
         Command::Show {} => show(),
-    }
+    };
+    result.unwrap();
 
     info!("Bye");
 }
 
-fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) {
+fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<(), ()> {
     debug!("input {:?}", history_path);
     let project_dirs = directories::ProjectDirs::from(
         "jp", "tinyport", "trimhistory").unwrap();
@@ -152,10 +153,27 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) {
     writer.flush().unwrap();
 
     store_statistics(&statistics_path, &statistics).unwrap();
+
+    Ok(())
 }
 
-fn show() {
-    panic!("TODO");
+fn show() -> Result<(), ()> {
+    let project_dirs = directories::ProjectDirs::from(
+        "jp", "tinyport", "trimhistory").unwrap();
+    let statistics_path = project_dirs.data_dir().join("statistics.toml");
+
+    let mut statistics = if statistics_path.exists() {
+        load_statistics(&statistics_path).unwrap()
+    } else {
+        panic!("TODO");
+    };
+
+    statistics.entries.sort_by(|lh, rh| rh.count.cmp(&lh.count));
+    for entry in statistics.entries {
+        println!("{:4}: {}", entry.count, entry.command);
+    }
+
+    Ok(())
 }
 
 fn load_statistics(path: &Path) -> Result<Statistics, ()> {
