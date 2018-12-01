@@ -3,6 +3,7 @@ extern crate dotenv;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
+extern crate rust_myscript;
 #[macro_use]
 extern crate serde_derive;
 extern crate structopt;
@@ -13,6 +14,8 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use structopt::StructOpt;
+
+use rust_myscript::myscript::prelude::*;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "trimhistory")]
@@ -65,50 +68,45 @@ impl Statistics {
         }
     }
 
-    fn find_command(&self, command: &str) -> Result<usize, ()> {
+    fn find_command(&self, command: &str) -> Option<usize> {
         for i in 0..self.entries.len() {
             if self.entries[i].command == command {
-                return Ok(i);
+                return Some(i);
             }
         }
-        Err(())
+        None
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
-
-    info!("Hello");
 
     let opt: Opt = Opt::from_args();
     debug!("config: {:?}", opt);
 
-    let result = match opt.cmd {
+    match opt.cmd {
         Command::Trim {
             backup_path,
             history_path,
         } => trim(history_path, backup_path),
         Command::Show {} => show(),
-    };
-    result.unwrap();
-
-    info!("Bye");
+    }
 }
 
-fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<(), ()> {
+fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
     debug!("input {:?}", history_path);
-    let project_dirs = directories::ProjectDirs::from(
-        "jp", "tinyport", "trimhistory").unwrap();
+    let project_dirs: directories::ProjectDirs =
+        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
 
     let mut statistics = if statistics_path.exists() {
-        load_statistics(&statistics_path).unwrap()
+        load_statistics(&statistics_path)?
     } else {
         Statistics::new()
     };
 
-    let history_file = File::open(&history_path).unwrap();
+    let history_file = File::open(&history_path)?;
     let mut buffer = BufReader::new(&history_file);
     let mut line = String::new();
     let mut trimmed = Vec::new();
@@ -136,37 +134,33 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<(), ()> {
                 }
                 line.clear();
             }
-            Err(e) => panic!(e),
+            Err(e) => return Err(e.into()),
         }
     }
 
     info!("trim_count: {}, len: {}", trim_count, trimmed.len());
 
     if let Some(backup_path) = backup_path {
-        std::fs::copy(&history_path, backup_path).unwrap();
+        std::fs::copy(&history_path, backup_path)?;
     }
-    let out_file = File::create(&history_path).unwrap();
+    let out_file = File::create(&history_path)?;
     let mut writer = BufWriter::new(out_file);
     for entity in trimmed.iter() {
-        writeln!(&mut writer, "{}", entity).unwrap();
+        writeln!(&mut writer, "{}", entity)?;
     }
-    writer.flush().unwrap();
+    writer.flush()?;
 
-    store_statistics(&statistics_path, &statistics).unwrap();
+    store_statistics(&statistics_path, &statistics)?;
 
     Ok(())
 }
 
-fn show() -> Result<(), ()> {
-    let project_dirs = directories::ProjectDirs::from(
-        "jp", "tinyport", "trimhistory").unwrap();
+fn show() -> Result<()> {
+    let project_dirs: directories::ProjectDirs = directories::ProjectDirs::from(
+        "jp", "tinyport", "trimhistory").ok_or_err()?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
 
-    let mut statistics = if statistics_path.exists() {
-        load_statistics(&statistics_path).unwrap()
-    } else {
-        panic!("TODO");
-    };
+    let mut statistics: Statistics = load_statistics(&statistics_path)?;
 
     statistics.entries.sort_by(|lh, rh| rh.count.cmp(&lh.count));
     for entry in statistics.entries {
@@ -176,49 +170,30 @@ fn show() -> Result<(), ()> {
     Ok(())
 }
 
-fn load_statistics(path: &Path) -> Result<Statistics, ()> {
-    let statistics_file = match File::open(&path) {
-        Ok(file) => file,
-        Err(e) => panic!(e),
-    };
+fn load_statistics(path: &Path) -> Result<Statistics> {
+    let statistics_file = File::open(&path)?;
     let mut buf = BufReader::new(statistics_file);
     let mut statistics_data = Vec::new();
-    if let Err(e) = buf.read_to_end(&mut statistics_data) {
-        panic!(e);
-    }
-    match toml::from_slice::<Statistics>(&statistics_data) {
-        Ok(ok) => Ok(ok),
-        Err(e) => panic!(e),
-    }
+    buf.read_to_end(&mut statistics_data)?;
+    Ok(toml::from_slice(&statistics_data)?)
 }
 
-fn store_statistics(path: &Path, statistics: &Statistics) -> Result<(), ()> {
+fn store_statistics(path: &Path, statistics: &Statistics) -> Result<()> {
     use std::fs;
-    let data_dir = path.parent().unwrap();
+    let data_dir: &Path = path.parent().ok_or_err()?;
     if !data_dir.exists() {
-        if let Err(e) = fs::create_dir_all(data_dir) {
-            panic!(e);
-        }
+        fs::create_dir_all(data_dir)?;
     }
-    match File::create(&path) {
-        Ok(file) => {
-            let mut writer = BufWriter::new(file);
-            let statistics_data = match toml::to_vec(&statistics) {
-                Ok(data) => data,
-                Err(e) => panic!(e),
-            };
-            if let Err(e) = writer.write_all(&statistics_data) {
-                panic!(e);
-            }
-            Ok(())
-        }
-        Err(e) => panic!(e),
-    }
+    let file = File::create(&path)?;
+    let mut writer = BufWriter::new(file);
+    let statistics_data = toml::to_vec(&statistics)?;
+    writer.write_all(&statistics_data)?;
+    Ok(())
 }
 
 fn increment_command_count(statistics: &mut Statistics, command: &str) {
     match statistics.find_command(command) {
-        Ok(index) => statistics.entries[index].count += 1,
-        Err(_) => statistics.entries.push(Entry::new(command)),
+        Some(index) => statistics.entries[index].count += 1,
+        None => statistics.entries.push(Entry::new(command)),
     }
 }
