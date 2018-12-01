@@ -3,6 +3,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 extern crate reqwest;
+extern crate rust_myscript;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -18,6 +19,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use structopt::StructOpt;
 
+use rust_myscript::myscript::prelude::*;
+
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
 #[derive(StructOpt, Debug)]
@@ -28,10 +31,18 @@ struct Opt {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CheckMethod {
+    Release,
+    Tag,
+}
+
+#[derive(Debug, Deserialize)]
 struct GithubOss {
     repo: String,
     version: String,
     prerelease: bool,
+    check_method: CheckMethod,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,7 +60,7 @@ struct GithubOssConfig {
 #[serde(rename_all = "camelCase")]
 struct ResultRelease {
     name: String,
-    tag: ResultTag,
+    tag: ResultTagName,
     is_draft: bool,
     is_prerelease: bool,
     published_at: String,
@@ -57,11 +68,23 @@ struct ResultRelease {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ResultTag {
+    name: String,
+    repository: ResultRepository,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResultTagName {
     name: String,
 }
 
-fn main() {
+#[derive(Debug, Deserialize)]
+struct ResultRepository {
+    url: String,
+}
+
+fn main() -> Result<()> {
     use std::process::exit;
 
     dotenv::dotenv().ok();
@@ -79,54 +102,100 @@ fn main() {
         }
     };
 
-    let oss_list = match load_config(&opt.filename) {
-        Some(list) => list,
-        None => {
-            println!("need oss list");
+    let oss_list: GithubOssConfig = match load_config(&opt.filename) {
+        Ok(list) => list,
+        Err(e) => {
+            println!("failed to open config: {:?}", e);
             exit(1);
         }
     };
     debug!("list={:?}", oss_list);
-    debug!("graphql_release={}", load_graphql_release_string());
 
     for oss in &oss_list.oss {
-        let result = retrieve_releases(&oss_list.github.host, &ghtoken, &oss);
-        debug!("result={}", result);
-        let mut result_list = serde_json::from_str::<Value>(&result).unwrap();
-        let result_list = result_list["data"]["repository"]["releases"]["nodes"].take();
-        let result_list = serde_json::from_value::<Vec<ResultRelease>>(result_list).unwrap();
-        let stable_list = result_list.iter()
-            .filter(|entry| !entry.is_draft &&
-                ((!entry.is_prerelease) || (oss.prerelease && entry.is_prerelease)))
-            .take(1)
-            .collect::<Vec<_>>();
-        match stable_list.first() {
-            Some(release) => {
-                match oss.version == release.tag.name {
-                    true => println!("latest: repo={} tag={}", oss.repo, release.tag.name),
-                    false => println!(
-                        "new version was found: repo={} current={} latest={} url={}",
-                        oss.repo, oss.version, release.tag.name, release.url),
-                }
+        match oss.check_method {
+            CheckMethod::Release => {
+                let result: String = retrieve_releases(&oss_list.github.host, &ghtoken, &oss)?;
+                debug!("result={}", result);
+                let release = filter_latest_release(&result, &oss)?;
+                print_release(&release, &oss);
             }
-            None => panic!("TODO: support tag"),
+            CheckMethod::Tag => {
+                let result = retrieve_tag(&oss_list.github.host, &ghtoken, &oss)?;
+                debug!("result={}", result);
+                let tag = filter_latest_tag(&result)?;
+                print_tag(&tag, &oss);
+            }
         }
     }
 
     info!("Bye");
+
+    Ok(())
 }
 
-fn retrieve_releases(host: &str, github_token: &str, oss: &GithubOss) -> String {
+fn print_release(release: &Option<ResultRelease>, oss: &GithubOss) {
+    match release {
+        Some(release) => {
+            match oss.version == release.tag.name {
+                true => println!("latest: repo={} tag={}", oss.repo, release.tag.name),
+                false => println!(
+                    "new version was found: repo={} current={} latest={} url={}",
+                    oss.repo, oss.version, release.tag.name, release.url),
+            }
+        }
+        None => println!("release repo={} not found", oss.repo),
+    }
+}
+
+fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
+    match tag {
+        Some(tag) => {
+            match oss.version == tag.name {
+                true => println!("latest: repo={} tag={}", oss.repo, tag.name),
+                false => println!(
+                    "new version was found: repo={} current={} latest={} url={}",
+                    oss.repo, oss.version, tag.name, tag.repository.url),
+            }
+        }
+        None => println!("tag repo={} not found", oss.repo),
+    }
+}
+
+fn filter_latest_release(releases_str: &str, oss: &GithubOss) -> Result<Option<ResultRelease>> {
+    let mut result_list = serde_json::from_str::<Value>(releases_str)?;
+    let result_list = result_list["data"]["repository"]["releases"]["nodes"].take();
+    let result_list = serde_json::from_value::<Vec<ResultRelease>>(result_list)?;
+    let ret = result_list.into_iter()
+        .filter(|entry| !entry.is_draft &&
+            ((!entry.is_prerelease) || (oss.prerelease && entry.is_prerelease)))
+        .take(1)
+        .collect::<Vec<_>>()
+        .pop();
+    Ok(ret)
+}
+
+fn filter_latest_tag(tags_str: &str) -> Result<Option<ResultTag>> {
+    let mut result_list = serde_json::from_str::<Value>(tags_str)?;
+    let result_list = result_list["data"]["repository"]["refs"]["nodes"].take();
+    let result_list = serde_json::from_value::<Vec<ResultTag>>(result_list)?;
+    let ret = result_list.into_iter()
+        .take(1)
+        .collect::<Vec<_>>()
+        .pop();
+    Ok(ret)
+}
+
+fn retrieve_releases(host: &str, github_token: &str, oss: &GithubOss) -> Result<String> {
     let token: Vec<&str> = oss.repo.split_terminator('/').collect();
     let owner = token[0];
     let name = token[1];
     let mut client_builder = reqwest::ClientBuilder::new();
 
     if let Some(proxy) = get_proxy() {
-        client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy).unwrap());
+        client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
     }
 
-    client_builder.build().unwrap()
+    let ret = client_builder.build()?
         .post(host)
         .bearer_auth(github_token)
         .body(json!({
@@ -136,8 +205,34 @@ fn retrieve_releases(host: &str, github_token: &str, oss: &GithubOss) -> String 
                 "name": name
             }
         }).to_string())
-        .send().unwrap()
-        .text().unwrap()
+        .send()?
+        .text()?;
+    Ok(ret)
+}
+
+fn retrieve_tag(host: &str, github_token: &str, oss: &GithubOss) -> Result<String> {
+    let token: Vec<&str> = oss.repo.split_terminator('/').collect();
+    let owner = token[0];
+    let name = token[1];
+    let mut client_builder = reqwest::ClientBuilder::new();
+
+    if let Some(proxy) = get_proxy() {
+        client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
+    }
+
+    let ret = client_builder.build()?
+        .post(host)
+        .bearer_auth(github_token)
+        .body(json!({
+            "query": load_graphql_tag_string(),
+            "variables": {
+                "owner": owner,
+                "name": name
+            }
+        }).to_string())
+        .send()?
+        .text()?;
+    Ok(ret)
 }
 
 fn get_github_token() -> Option<String> {
@@ -146,15 +241,19 @@ fn get_github_token() -> Option<String> {
         .unwrap_or(None)
 }
 
-fn load_config(file_path: &Path) -> Option<GithubOssConfig> {
-    let mut oss_list_file = File::open(file_path).unwrap();
+fn load_config(file_path: &Path) -> Result<GithubOssConfig> {
+    let mut oss_list_file = File::open(file_path)?;
     let mut oss_list_string = String::new();
-    oss_list_file.read_to_string(&mut oss_list_string).unwrap();
-    Some(toml::from_str(&oss_list_string).unwrap())
+    oss_list_file.read_to_string(&mut oss_list_string)?;
+    Ok(toml::from_str(&oss_list_string)?)
 }
 
 fn load_graphql_release_string() -> &'static str {
-    get_checkghossversion_string()
+    get_graphql_release()
+}
+
+fn load_graphql_tag_string() -> &'static str {
+    get_graphql_tag()
 }
 
 fn get_proxy() -> Option<String> {

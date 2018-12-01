@@ -5,33 +5,46 @@ host = "https://api.github.com/graphql"
 repo ="bumptech/glide"
 version = "v4.6.1"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "google/dagger"
 version = "2.14.1"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "tbroyer/gradle-errorprone-plugin"
 version = "v0.0.13"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "google/error-prone"
 version = "v2.2.0"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "square/leakcanary"
 version = "v1.5.4"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "ReactiveX/RxJava"
 version = "2.1.12"
 prerelease = false
+check_method = "release"
 
 [[oss]]
 repo = "ReactiveX/RxAndroid"
 version = "2.0.2"
 prerelease = false
+check_method = "release"
+
+[[oss]]
+repo = "sailorhg/fairyfloss"
+version = "v0.2.0"
+prerelease = false
+check_method = "tag"
