@@ -38,7 +38,10 @@ enum Command {
         history_path: PathBuf,
     },
     #[structopt(name = "show")]
-    Show {},
+    Show {
+        #[structopt(name = "NUM", short = "n", long = "lines", help = "prints the first NUM lines")]
+        num: Option<i32>,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -90,7 +93,9 @@ fn main() -> Result<()> {
             backup_path,
             history_path,
         } => trim(history_path, backup_path),
-        Command::Show {} => show(),
+        Command::Show {
+            num
+        } => show(num),
     }
 }
 
@@ -155,7 +160,7 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn show() -> Result<()> {
+fn show(num: Option<i32>) -> Result<()> {
     let project_dirs: directories::ProjectDirs = directories::ProjectDirs::from(
         "jp", "tinyport", "trimhistory").ok_or_err()?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
@@ -163,7 +168,16 @@ fn show() -> Result<()> {
     let mut statistics: Statistics = load_statistics(&statistics_path)?;
 
     statistics.entries.sort_by(|lh, rh| rh.count.cmp(&lh.count));
-    for entry in statistics.entries {
+    let len = if let Some(num) = num {
+        if statistics.entries.len() < num as usize {
+            statistics.entries.len()
+        } else {
+            num as usize
+        }
+    } else {
+        statistics.entries.len()
+    };
+    for entry in &statistics.entries[..len] {
         println!("{:4}: {}", entry.count, entry.command);
     }
 
