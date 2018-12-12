@@ -2,6 +2,7 @@
 name = "rust-myscript"
 version = "0.1.0"
 authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
+edition = "2018"
 
 [build-dependencies]
 failure = "0.1.3"

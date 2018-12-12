@@ -1,10 +1,9 @@
-#[macro_use]
-extern crate failure;
-
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+
+use failure::format_err;
 
 type Result<T> = std::result::Result<T, failure::Error>;
 

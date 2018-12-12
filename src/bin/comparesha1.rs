@@ -1,7 +1,6 @@
-extern crate dotenv;
-extern crate env_logger;
-#[macro_use]
-extern crate log;
+use dotenv;
+use env_logger;
+use log::{debug, info};
 
 #[derive(Debug)]
 struct Entity {

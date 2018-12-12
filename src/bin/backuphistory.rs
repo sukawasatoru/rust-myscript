@@ -4,15 +4,16 @@
 //! git add .
 //! git commit -m "update"
 
-extern crate dotenv;
-extern crate env_logger;
-#[macro_use]
-extern crate log;
 extern crate structopt;
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::{
+    path::PathBuf,
+    process::Command,
+};
 
+use dotenv;
+use env_logger;
+use log::{debug, info};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]

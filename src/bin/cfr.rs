@@ -1,9 +1,8 @@
-extern crate dotenv;
-extern crate env_logger;
-#[macro_use]
-extern crate log;
-
 use std::env::Args;
+
+use dotenv;
+use env_logger;
+use log::info;
 
 fn main() {
     dotenv::dotenv().ok();

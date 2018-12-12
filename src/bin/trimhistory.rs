@@ -1,18 +1,11 @@
-extern crate directories;
-extern crate dotenv;
-extern crate env_logger;
-#[macro_use]
-extern crate log;
-extern crate rust_myscript;
-#[macro_use]
-extern crate serde_derive;
-extern crate structopt;
-extern crate toml;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Read, Write},
+    path::{Path, PathBuf},
+};
 
-use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
-
+use log::{debug, info};
+use serde_derive::{Deserialize, Serialize};
 use structopt::StructOpt;
 
 use rust_myscript::myscript::prelude::*;
@@ -127,16 +120,14 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
                     }
                 }
                 debug!("result: {:?}", line);
-                {
-                    let trimmed_line = line.trim();
-                    if let Some(index) = trimmed.iter().position(|entity| trimmed_line == entity) {
-                        debug!("contains: {}", index);
-                        trimmed.remove(index);
-                        trim_count += 1;
-                        increment_command_count(&mut statistics, trimmed_line);
-                    }
-                    trimmed.push(trimmed_line.to_owned());
+                let trimmed_line = line.trim();
+                if let Some(index) = trimmed.iter().position(|entity| trimmed_line == entity) {
+                    debug!("contains: {}", index);
+                    trimmed.remove(index);
+                    trim_count += 1;
+                    increment_command_count(&mut statistics, trimmed_line);
                 }
+                trimmed.push(trimmed_line.to_owned());
                 line.clear();
             }
             Err(e) => return Err(e.into()),

@@ -1,23 +1,17 @@
-extern crate dotenv;
-extern crate env_logger;
-#[macro_use]
-extern crate log;
-extern crate reqwest;
-extern crate rust_myscript;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
-extern crate structopt;
-extern crate toml;
+use std::{
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
-use serde_json::Value;
+use dotenv;
+use env_logger;
+use log::{debug, info};
+use reqwest;
+use serde_derive::Deserialize;
+use serde_json::{self, json, Value};
 use structopt::StructOpt;
+use toml;
 
 use rust_myscript::myscript::prelude::*;
 
