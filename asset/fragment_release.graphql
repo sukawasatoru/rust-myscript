@@ -1,0 +1,12 @@
+fragment Rel on Repository {
+  releases(first: $num, orderBy: {field: CREATED_AT, direction: DESC}) {
+    nodes {
+      tag {
+        name
+      }
+      isDraft
+      isPrerelease
+      url
+    }
+  }
+}

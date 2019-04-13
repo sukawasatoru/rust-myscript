@@ -16,13 +16,14 @@ fn checkghossversion() -> Result<()> {
     let asset_path = Path::new(&manifest_dir).join("asset");
 
     let mut methods = Vec::new();
-    for file_name in ["graphql_release", "graphql_tag"].iter() {
-        let file_path = asset_path.join(format!("{}.txt", file_name));
+    let mut file_string = String::new();
+    for file_name in ["fragment_release", "fragment_tag"].iter() {
+        let file_path = asset_path.join(format!("{}.graphql", file_name));
         let mut file = match File::open(&file_path) {
             Ok(ok) => ok,
             Err(e) => Err(format_err!("Failed to open file: {:?}, {:?}", file_path, e))?,
         };
-        let mut file_string = String::new();
+        file_string.clear();
         file.read_to_string(&mut file_string)?;
         methods.push(format!(
             r##"pub fn get_{}() -> &'static str {{
