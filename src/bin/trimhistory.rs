@@ -22,8 +22,10 @@ enum Command {
     #[structopt(name = "trim")]
     Trim {
         #[structopt(
-        short = "b", long = "backup", help = "Backup a FILE to specified path",
-        parse(from_os_str)
+            short = "b",
+            long = "backup",
+            help = "Backup a FILE to specified path",
+            parse(from_os_str)
         )]
         backup_path: Option<PathBuf>,
 
@@ -32,7 +34,12 @@ enum Command {
     },
     #[structopt(name = "show")]
     Show {
-        #[structopt(name = "NUM", short = "n", long = "lines", help = "prints the first NUM lines")]
+        #[structopt(
+            name = "NUM",
+            short = "n",
+            long = "lines",
+            help = "prints the first NUM lines"
+        )]
         num: Option<i32>,
     },
 }
@@ -86,9 +93,7 @@ fn main() -> Result<()> {
             backup_path,
             history_path,
         } => trim(history_path, backup_path),
-        Command::Show {
-            num
-        } => show(num),
+        Command::Show { num } => show(num),
     }
 }
 
@@ -113,9 +118,9 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
         match buffer.read_line(&mut line) {
             Ok(0) => break,
             Ok(_) => {
-                if line.ends_with("\n") {
+                if line.ends_with('\n') {
                     line.pop();
-                    if line.ends_with("\r") {
+                    if line.ends_with('\r') {
                         line.pop();
                     }
                 }
@@ -152,8 +157,8 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
 }
 
 fn show(num: Option<i32>) -> Result<()> {
-    let project_dirs: directories::ProjectDirs = directories::ProjectDirs::from(
-        "jp", "tinyport", "trimhistory").ok_or_err()?;
+    let project_dirs: directories::ProjectDirs =
+        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
 
     let mut statistics: Statistics = load_statistics(&statistics_path)?;

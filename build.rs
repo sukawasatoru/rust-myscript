@@ -25,16 +25,21 @@ fn checkghossversion() -> Result<()> {
         };
         file_string.clear();
         file.read_to_string(&mut file_string)?;
-        methods.push(format!(
-            r##"pub fn get_{}() -> &'static str {{
+        methods.push(
+            format!(
+                r##"pub fn get_{}() -> &'static str {{
     r#"{}"#
 }}
 "##,
-            file_name, &file_string).into_bytes());
+                file_name, &file_string
+            )
+            .into_bytes(),
+        );
     }
 
     let out_dir = env::var("OUT_DIR")?;
-    let mut checkghossversion_file = File::create(Path::new(&out_dir).join("checkghossversion_token.rs"))?;
+    let mut checkghossversion_file =
+        File::create(Path::new(&out_dir).join("checkghossversion_token.rs"))?;
 
     for method_str in &methods {
         checkghossversion_file.write_all(method_str)?;

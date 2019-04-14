@@ -4,8 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use regex::Regex;
 use log::{debug, info};
+use regex::Regex;
 use serde_derive::Deserialize;
 use serde_json::{self, json, Value};
 use structopt::StructOpt;
@@ -83,8 +83,7 @@ fn main() -> Result<()> {
 
     let ghtoken = get_github_token().expect("need github token");
 
-    let oss_list = load_config(&opt.filename)
-        .expect("failed to open config") as GithubOssConfig;
+    let oss_list = load_config(&opt.filename).expect("failed to open config") as GithubOssConfig;
 
     debug!("list={:?}", oss_list);
 
@@ -96,7 +95,8 @@ fn main() -> Result<()> {
 
     let body = generate_body(&oss_list.oss, false, 10)?;
     debug!("{}", body);
-    let result = client_builder.build()?
+    let result = client_builder
+        .build()?
         .post(&oss_list.github.host)
         .bearer_auth(ghtoken)
         .body(body)
@@ -109,15 +109,17 @@ fn main() -> Result<()> {
 
     for oss in &oss_list.oss {
         let token: Vec<&str> = oss.repo.split_terminator('/').collect();
-        let repo_name = regex.replace_all(&format!("{}_{}", token[0], token[1]), "_").to_string();
+        let repo_name = regex
+            .replace_all(&format!("{}_{}", token[0], token[1]), "_")
+            .to_string();
         match oss.check_method {
             CheckMethod::Release => {
                 let result_list = result["data"][&repo_name]["releases"]["nodes"].take();
                 let result_list = serde_json::from_value::<Vec<ResultRelease>>(result_list)
-                    .expect(&format!("release not found: {}", repo_name));
-                let release = result_list.into_iter()
-                    .filter(|entry| !entry.is_draft &&
-                        ((!entry.is_prerelease) || (oss.prerelease && entry.is_prerelease)))
+                    .unwrap_or_else(|_| panic!("release not found: {}", repo_name));
+                let release = result_list
+                    .into_iter()
+                    .filter(|entry| !entry.is_draft && (!entry.is_prerelease || oss.prerelease))
                     .take(1)
                     .collect::<Vec<_>>()
                     .pop();
@@ -126,11 +128,8 @@ fn main() -> Result<()> {
             CheckMethod::Tag => {
                 let result_list = result["data"][&repo_name]["refs"]["nodes"].take();
                 let result_list = serde_json::from_value::<Vec<ResultTag>>(result_list)
-                    .expect(&format!("tag not found: {}", repo_name));
-                let tag = result_list.into_iter()
-                    .take(1)
-                    .collect::<Vec<_>>()
-                    .pop();
+                    .unwrap_or_else(|_| panic!("tag not found: {}", repo_name));
+                let tag = result_list.into_iter().take(1).collect::<Vec<_>>().pop();
                 print_tag(&tag, &oss);
             }
         }
@@ -155,7 +154,11 @@ fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Result<Stri
         query_body.push_str(&format!(
             r#"{}_{}: repository(owner: "{}", name: "{}") {{ ...{} }}"#,
             regex.replace_all(owner, "_"),
-            regex.replace_all(name, "_"), owner, name, fragment_type));
+            regex.replace_all(name, "_"),
+            owner,
+            name,
+            fragment_type
+        ));
     }
 
     Ok(json!({
@@ -173,17 +176,20 @@ fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Result<Stri
             "dryRun": dry_run,
             "num": num
         }
-    }).to_string())
+    })
+    .to_string())
 }
 
 fn print_release(release: &Option<ResultRelease>, oss: &GithubOss) {
     match release {
         Some(release) => {
-            match oss.version == release.tag.name {
-                true => println!("latest: repo={} tag={}", oss.repo, release.tag.name),
-                false => println!(
+            if oss.version == release.tag.name {
+                println!("latest: repo={} tag={}", oss.repo, release.tag.name)
+            } else {
+                println!(
                     "new version was found: repo={} current={} latest={} url={}",
-                    oss.repo, oss.version, release.tag.name, release.url),
+                    oss.repo, oss.version, release.tag.name, release.url
+                )
             }
         }
         None => println!("release repo={} not found", oss.repo),
@@ -193,11 +199,13 @@ fn print_release(release: &Option<ResultRelease>, oss: &GithubOss) {
 fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     match tag {
         Some(tag) => {
-            match oss.version == tag.name {
-                true => println!("latest: repo={} tag={}", oss.repo, tag.name),
-                false => println!(
+            if oss.version == tag.name {
+                println!("latest: repo={} tag={}", oss.repo, tag.name)
+            } else {
+                println!(
                     "new version was found: repo={} current={} latest={} url={}",
-                    oss.repo, oss.version, tag.name, tag.repository.url),
+                    oss.repo, oss.version, tag.name, tag.repository.url
+                )
             }
         }
         None => println!("tag repo={} not found", oss.repo),
