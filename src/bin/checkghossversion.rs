@@ -1,12 +1,12 @@
 use std::{
-    fs::File,
-    io::Read,
+    fs::{self, File},
+    io::{prelude::*, BufReader, BufWriter},
     path::{Path, PathBuf},
 };
 
 use log::{debug, info};
 use regex::Regex;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use structopt::StructOpt;
 
@@ -73,6 +73,32 @@ struct ResultRepository {
     url: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct Config {
+    github: GitHubConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            github: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GitHubConfig {
+    oauth_token: String,
+}
+
+impl Default for GitHubConfig {
+    fn default() -> Self {
+        Self {
+            oauth_token: Default::default(),
+        }
+    }
+}
+
 fn main() -> Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
@@ -81,9 +107,13 @@ fn main() -> Result<()> {
     let opt: Opt = Opt::from_args();
     debug!("opt: {:?}", opt);
 
-    let ghtoken = get_github_token().expect("need github token");
+    let project_dirs =
+        directories::ProjectDirs::from("jp", "tinyport", "checkghossversion").ok_or_err()?;
+    let config_path = project_dirs.config_dir().join("config.toml");
+    let config = prepare_config(&config_path)?;
+    let ghtoken = get_github_token(&config).expect("need github token");
 
-    let oss_list = load_config(&opt.filename).expect("failed to open config") as GithubOssConfig;
+    let oss_list = load_recipe(&opt.filename).expect("failed to open a recipe") as GithubOssConfig;
 
     debug!("list={:?}", oss_list);
 
@@ -212,11 +242,32 @@ fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     }
 }
 
-fn load_config(file_path: &Path) -> Result<GithubOssConfig> {
+fn load_recipe(file_path: &Path) -> Result<GithubOssConfig> {
     let mut oss_list_file = File::open(file_path)?;
     let mut oss_list_string = String::new();
     oss_list_file.read_to_string(&mut oss_list_string)?;
     Ok(toml::from_str(&oss_list_string)?)
+}
+
+fn prepare_config(path: &Path) -> Result<Config> {
+    if path.exists() {
+        let config_file = File::open(path)?;
+        let mut buffer = BufReader::new(config_file);
+        let mut config_data = Vec::new();
+        buffer.read_to_end(&mut config_data)?;
+        return Ok(toml::from_slice(&config_data)?);
+    }
+
+    info!("create new config file");
+    let dir = path.parent().ok_or_err()? as &Path;
+    if !dir.exists() {
+        fs::create_dir_all(dir)?;
+    }
+    let config: Config = Default::default();
+    let mut buffer = BufWriter::new(File::create(path)?);
+    buffer.write_all(&toml::to_vec(&config)?)?;
+    eprintln!("Config file created successfully: {:?}", path);
+    Ok(config)
 }
 
 fn get_release_fragment_str() -> &'static str {
@@ -227,8 +278,14 @@ fn get_tag_fragment_str() -> &'static str {
     get_fragment_tag()
 }
 
-fn get_github_token() -> Option<String> {
-    std::env::var("GITHUB_TOKEN").ok()
+fn get_github_token(config: &Config) -> Option<String> {
+    std::env::var("GITHUB_TOKEN").ok().or_else(|| {
+        if config.github.oauth_token.is_empty() {
+            None
+        } else {
+            Some(config.github.oauth_token.to_string())
+        }
+    })
 }
 
 fn get_proxy() -> Option<String> {

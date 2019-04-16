@@ -8,7 +8,18 @@ use failure::format_err;
 type Result<T> = std::result::Result<T, failure::Error>;
 
 fn main() -> Result<()> {
+    check_version()?;
     checkghossversion()
+}
+
+fn check_version() -> Result<()> {
+    use rustc_version::{version, Version};
+
+    return if version()? < Version::parse("1.34.0")? {
+        Err(format_err!("requires rustc v1.34.0 or above"))
+    } else {
+        Ok(())
+    };
 }
 
 fn checkghossversion() -> Result<()> {
