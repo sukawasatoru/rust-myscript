@@ -81,7 +81,7 @@ impl Statistics {
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -97,7 +97,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
+fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Fallible<()> {
     debug!("input {:?}", history_path);
     let project_dirs: directories::ProjectDirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
@@ -156,7 +156,7 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn show(num: Option<i32>) -> Result<()> {
+fn show(num: Option<i32>) -> Fallible<()> {
     let project_dirs: directories::ProjectDirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
@@ -180,7 +180,7 @@ fn show(num: Option<i32>) -> Result<()> {
     Ok(())
 }
 
-fn load_statistics(path: &Path) -> Result<Statistics> {
+fn load_statistics(path: &Path) -> Fallible<Statistics> {
     let statistics_file = File::open(&path)?;
     let mut buf = BufReader::new(statistics_file);
     let mut statistics_data = Vec::new();
@@ -188,7 +188,7 @@ fn load_statistics(path: &Path) -> Result<Statistics> {
     Ok(toml::from_slice(&statistics_data)?)
 }
 
-fn store_statistics(path: &Path, statistics: &Statistics) -> Result<()> {
+fn store_statistics(path: &Path, statistics: &Statistics) -> Fallible<()> {
     use std::fs;
     let data_dir: &Path = path.parent().ok_or_err()?;
     if !data_dir.exists() {
