@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{prelude::*, BufReader, BufWriter},
+    io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
 };
 
@@ -78,6 +78,12 @@ struct Config {
     github: GitHubConfig,
 }
 
+impl Config {
+    fn new() -> Self {
+        Default::default()
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -99,7 +105,7 @@ impl Default for GitHubConfig {
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     env_logger::init();
     info!("Hello");
@@ -110,10 +116,13 @@ fn main() -> Result<()> {
     let project_dirs =
         directories::ProjectDirs::from("jp", "tinyport", "checkghossversion").ok_or_err()?;
     let config_path = project_dirs.config_dir().join("config.toml");
-    let config = prepare_config(&config_path)?;
+    let mut toml_loader = TomlLoader::new();
+    let config = prepare_config(&mut toml_loader, &config_path)?;
     let ghtoken = get_github_token(&config).expect("need github token");
 
-    let oss_list = load_recipe(&opt.filename).expect("failed to open a recipe") as GithubOssConfig;
+    let oss_list = toml_loader
+        .load::<GithubOssConfig>(&opt.filename)
+        .expect("failed to open a recipe");
 
     debug!("list={:?}", oss_list);
 
@@ -170,7 +179,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Result<String> {
+fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Fallible<String> {
     let regex = Regex::new(r"[-.]")?;
     let mut query_body = String::new();
     for github_oss in oss_list {
@@ -242,20 +251,9 @@ fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     }
 }
 
-fn load_recipe(file_path: &Path) -> Result<GithubOssConfig> {
-    let mut oss_list_file = File::open(file_path)?;
-    let mut oss_list_string = String::new();
-    oss_list_file.read_to_string(&mut oss_list_string)?;
-    Ok(toml::from_str(&oss_list_string)?)
-}
-
-fn prepare_config(path: &Path) -> Result<Config> {
+fn prepare_config(loader: &mut TomlLoader, path: &Path) -> Fallible<Config> {
     if path.exists() {
-        let config_file = File::open(path)?;
-        let mut buffer = BufReader::new(config_file);
-        let mut config_data = Vec::new();
-        buffer.read_to_end(&mut config_data)?;
-        return Ok(toml::from_slice(&config_data)?);
+        return loader.load(path);
     }
 
     info!("create new config file");
@@ -263,7 +261,7 @@ fn prepare_config(path: &Path) -> Result<Config> {
     if !dir.exists() {
         fs::create_dir_all(dir)?;
     }
-    let config: Config = Default::default();
+    let config = Config::new();
     let mut buffer = BufWriter::new(File::create(path)?);
     buffer.write_all(&toml::to_vec(&config)?)?;
     eprintln!("Config file created successfully: {:?}", path);
