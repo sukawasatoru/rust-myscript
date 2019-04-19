@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::{debug, info};
+use log::{debug, info, trace};
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
@@ -32,6 +32,7 @@ enum CheckMethod {
 struct GithubOss {
     repo: String,
     version: String,
+    version_rule: Option<String>,
     prerelease: bool,
     check_method: CheckMethod,
 }
@@ -111,6 +112,7 @@ fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     env_logger::init();
     info!("Hello");
+    info!("log level: {}", log::max_level());
 
     let opt: Opt = Opt::from_args();
     debug!("opt: {:?}", opt);
@@ -136,7 +138,7 @@ fn main() -> Fallible<()> {
         .load::<GithubOssConfig>(&recipe_path)
         .expect("failed to open a recipe");
 
-    debug!("list={:?}", oss_list);
+    trace!("list={:?}", oss_list);
 
     let mut client_builder = reqwest::ClientBuilder::new();
 
@@ -145,7 +147,7 @@ fn main() -> Fallible<()> {
     }
 
     let body = generate_body(&oss_list.oss, false, 10)?;
-    debug!("{}", body);
+    trace!("{}", body);
     let result = client_builder
         .build()?
         .post(&oss_list.github.host)
@@ -153,7 +155,7 @@ fn main() -> Fallible<()> {
         .body(body)
         .send()?
         .text()?;
-    debug!("result={}", result);
+    trace!("result={}", result);
 
     let mut result = serde_json::from_str::<Value>(&result)?;
     let regex = Regex::new(r"[-.]")?;
@@ -163,6 +165,13 @@ fn main() -> Fallible<()> {
         let repo_name = regex
             .replace_all(&format!("{}_{}", token[0], token[1]), "_")
             .to_string();
+        let version_reg = match oss.version_rule {
+            Some(ref rule) => {
+                debug!("{} use version_rules: {}", oss.repo, rule);
+                Some(regex::Regex::new(rule)?)
+            }
+            None => None,
+        };
         match oss.check_method {
             CheckMethod::Release => {
                 let result_list = result["data"][&repo_name]["releases"]["nodes"].take();
@@ -171,6 +180,10 @@ fn main() -> Fallible<()> {
                 let release = result_list
                     .into_iter()
                     .filter(|entry| !entry.is_draft && (!entry.is_prerelease || oss.prerelease))
+                    .filter(|entry| match version_reg {
+                        Some(ref reg) => reg.is_match(&entry.tag.name),
+                        None => true,
+                    })
                     .take(1)
                     .collect::<Vec<_>>()
                     .pop();
@@ -180,7 +193,15 @@ fn main() -> Fallible<()> {
                 let result_list = result["data"][&repo_name]["refs"]["nodes"].take();
                 let result_list = serde_json::from_value::<Vec<ResultTag>>(result_list)
                     .unwrap_or_else(|_| panic!("tag not found: {}", repo_name));
-                let tag = result_list.into_iter().take(1).collect::<Vec<_>>().pop();
+                let tag = result_list
+                    .into_iter()
+                    .filter(|entry| match version_reg {
+                        Some(ref reg) => reg.is_match(&entry.name),
+                        None => true,
+                    })
+                    .take(1)
+                    .collect::<Vec<_>>()
+                    .pop();
                 print_tag(&tag, &oss);
             }
         }
