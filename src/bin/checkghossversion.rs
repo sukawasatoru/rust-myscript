@@ -17,8 +17,8 @@ include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 #[derive(StructOpt, Debug)]
 #[structopt(name = "checkghossversion")]
 struct Opt {
-    #[structopt(name = "FILE", help = "input", parse(from_os_str))]
-    filename: PathBuf,
+    #[structopt(name = "RECIPE", help = "input", parse(from_os_str))]
+    filename: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +75,7 @@ struct ResultRepository {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Config {
+    default_recipe: Option<PathBuf>,
     github: GitHubConfig,
 }
 
@@ -87,6 +88,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            default_recipe: Default::default(),
             github: Default::default(),
         }
     }
@@ -120,8 +122,18 @@ fn main() -> Fallible<()> {
     let config = prepare_config(&mut toml_loader, &config_path)?;
     let ghtoken = get_github_token(&config).expect("need github token");
 
+    let recipe_path = &opt
+        .filename
+        .or_else(|| match config.default_recipe {
+            ref default_recipe @ Some(_) => {
+                info!("use recipe path via config");
+                default_recipe.clone()
+            }
+            None => None,
+        })
+        .expect("the recipe is required. specify via command line or config file");
     let oss_list = toml_loader
-        .load::<GithubOssConfig>(&opt.filename)
+        .load::<GithubOssConfig>(&recipe_path)
         .expect("failed to open a recipe");
 
     debug!("list={:?}", oss_list);
