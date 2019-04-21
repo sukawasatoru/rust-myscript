@@ -342,12 +342,10 @@ fn main() -> Fallible<()> {
     trace!("result={}", result);
 
     let mut result = serde_json::from_str::<Value>(&result)?;
-    let regex = Regex::new(r"[-.]")?;
+    let regex = Regex::new(r"[-./]")?;
 
     for oss in &oss_list.oss {
-        let repo_name = regex
-            .replace_all(&format!("{}_{}", oss.owner, oss.name), "_")
-            .to_string();
+        let repo_name = regex.replace_all(&oss.repo, "_").to_string();
         let version_reg = match oss.version_rule {
             Some(ref rule) => {
                 debug!("{} use version_rules: {}", oss.repo, rule);
@@ -396,7 +394,7 @@ fn main() -> Fallible<()> {
 }
 
 fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Fallible<String> {
-    let regex = Regex::new(r"[-.]")?;
+    let regex = Regex::new(r"[-./]")?;
     let mut query_body = String::new();
     for github_oss in oss_list {
         let fragment_type = match github_oss.check_method {
@@ -404,9 +402,8 @@ fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Fallible<St
             CheckMethod::Tag => "Tag",
         };
         query_body.push_str(&format!(
-            r#"{}_{}: repository(owner: "{}", name: "{}") {{ ...{} }}"#,
-            regex.replace_all(&github_oss.owner, "_"),
-            regex.replace_all(&github_oss.name, "_"),
+            r#"{}: repository(owner: "{}", name: "{}") {{ ...{} }}"#,
+            regex.replace_all(&github_oss.repo, "_"),
             github_oss.owner,
             github_oss.name,
             fragment_type
