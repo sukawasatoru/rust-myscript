@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     fs::{self, File},
     io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
@@ -6,6 +7,7 @@ use std::{
 
 use log::{debug, info, trace};
 use regex::Regex;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use structopt::StructOpt;
@@ -28,13 +30,195 @@ enum CheckMethod {
     Tag,
 }
 
-#[derive(Debug, Deserialize)]
+// TODO: E0723.
+const GITHUB_OSS_FIELDS: &'static [&'static str] = &[
+    "repo",
+    "version",
+    "version_rule",
+    "prerelease",
+    "check_method",
+];
+
+enum GithubOssField {
+    Repo,
+    Version,
+    VersionRule,
+    Prerelease,
+    CheckMethod,
+}
+
+impl GithubOssField {
+    fn to_str(&self) -> &'static str {
+        match self {
+            GithubOssField::Repo => "repo",
+            GithubOssField::Version => "version",
+            GithubOssField::VersionRule => "version_rule",
+            GithubOssField::Prerelease => "prerelease",
+            GithubOssField::CheckMethod => "check_method",
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GithubOssField {
+    fn deserialize<D>(deserializer: D) -> Result<GithubOssField, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct FieldVisitor;
+
+        impl<'de> Visitor<'de> for FieldVisitor {
+            type Value = GithubOssField;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("GithubOss struct fields")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match v {
+                    "repo" => Ok(GithubOssField::Repo),
+                    "version" => Ok(GithubOssField::Version),
+                    "version_rule" => Ok(GithubOssField::VersionRule),
+                    "prerelease" => Ok(GithubOssField::Prerelease),
+                    "check_method" => Ok(GithubOssField::CheckMethod),
+                    _ => Err(de::Error::unknown_field(v, GITHUB_OSS_FIELDS)),
+                }
+            }
+        }
+
+        deserializer.deserialize_identifier(FieldVisitor)
+    }
+}
+
+#[derive(Debug)]
 struct GithubOss {
     repo: String,
+    owner: String,
+    name: String,
     version: String,
     version_rule: Option<String>,
     prerelease: bool,
     check_method: CheckMethod,
+}
+
+impl GithubOss {
+    fn new(
+        repo: &str,
+        version: &str,
+        version_rule: Option<String>,
+        prerelease: bool,
+        check_method: CheckMethod,
+    ) -> GithubOss {
+        let split = repo.split('/').collect::<Vec<_>>();
+        GithubOss {
+            repo: repo.to_string(),
+            owner: split[0].to_string(),
+            name: split[1].to_string(),
+            version: version.to_string(),
+            version_rule,
+            prerelease,
+            check_method,
+        }
+    }
+}
+
+struct GithubOssVisitor;
+
+impl<'de> Visitor<'de> for GithubOssVisitor {
+    type Value = GithubOss;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a GithubOss struct")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        Ok(GithubOss::new(
+            seq.next_element()?
+                .ok_or_else(|| de::Error::invalid_length(0, &self))?,
+            seq.next_element()?
+                .ok_or_else(|| de::Error::invalid_length(1, &self))?,
+            seq.next_element()?
+                .ok_or_else(|| de::Error::invalid_length(2, &self))?,
+            seq.next_element()?
+                .ok_or_else(|| de::Error::invalid_length(3, &self))?,
+            seq.next_element()?
+                .ok_or_else(|| de::Error::invalid_length(4, &self))?,
+        ))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut repo = None;
+        let mut version = None;
+        let mut version_rule = None;
+        let mut prerelease = None;
+        let mut check_method = None;
+        while let Some(key) = map.next_key()? {
+            match key {
+                GithubOssField::Repo => {
+                    if repo.is_some() {
+                        return Err(de::Error::duplicate_field(GithubOssField::Repo.to_str()));
+                    }
+                    repo = Some(map.next_value()?);
+                }
+                GithubOssField::Version => {
+                    if version.is_some() {
+                        return Err(de::Error::duplicate_field(GithubOssField::Version.to_str()));
+                    }
+                    version = Some(map.next_value()?);
+                }
+                GithubOssField::VersionRule => {
+                    if version_rule.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            GithubOssField::VersionRule.to_str(),
+                        ));
+                    }
+                    version_rule = Some(map.next_value()?);
+                }
+                GithubOssField::Prerelease => {
+                    if prerelease.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            GithubOssField::Prerelease.to_str(),
+                        ));
+                    }
+                    prerelease = Some(map.next_value()?);
+                }
+                GithubOssField::CheckMethod => {
+                    if check_method.is_some() {
+                        return Err(de::Error::duplicate_field(
+                            GithubOssField::CheckMethod.to_str(),
+                        ));
+                    }
+                    check_method = Some(map.next_value()?);
+                }
+            }
+        }
+        Ok(GithubOss::new(
+            repo.ok_or_else(|| de::Error::missing_field(GithubOssField::Repo.to_str()))?,
+            version.ok_or_else(|| de::Error::missing_field(GithubOssField::Version.to_str()))?,
+            version_rule,
+            prerelease
+                .ok_or_else(|| de::Error::missing_field(GithubOssField::Prerelease.to_str()))?,
+            check_method
+                .ok_or_else(|| de::Error::missing_field(GithubOssField::CheckMethod.to_str()))?,
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for GithubOss {
+    fn deserialize<D>(deserializer: D) -> Result<GithubOss, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_struct("GithubOss", GITHUB_OSS_FIELDS, GithubOssVisitor)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,9 +345,8 @@ fn main() -> Fallible<()> {
     let regex = Regex::new(r"[-.]")?;
 
     for oss in &oss_list.oss {
-        let token: Vec<&str> = oss.repo.split_terminator('/').collect();
         let repo_name = regex
-            .replace_all(&format!("{}_{}", token[0], token[1]), "_")
+            .replace_all(&format!("{}_{}", oss.owner, oss.name), "_")
             .to_string();
         let version_reg = match oss.version_rule {
             Some(ref rule) => {
@@ -216,19 +399,16 @@ fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Fallible<St
     let regex = Regex::new(r"[-.]")?;
     let mut query_body = String::new();
     for github_oss in oss_list {
-        let token: Vec<&str> = github_oss.repo.split_terminator('/').collect();
-        let (owner, name) = (token[0], token[1]);
-
         let fragment_type = match github_oss.check_method {
             CheckMethod::Release => "Rel",
             CheckMethod::Tag => "Tag",
         };
         query_body.push_str(&format!(
             r#"{}_{}: repository(owner: "{}", name: "{}") {{ ...{} }}"#,
-            regex.replace_all(owner, "_"),
-            regex.replace_all(name, "_"),
-            owner,
-            name,
+            regex.replace_all(&github_oss.owner, "_"),
+            regex.replace_all(&github_oss.name, "_"),
+            github_oss.owner,
+            github_oss.name,
             fragment_type
         ));
     }
