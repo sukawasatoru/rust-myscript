@@ -19,6 +19,9 @@ include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 #[derive(StructOpt, Debug)]
 #[structopt(name = "checkghossversion")]
 struct Opt {
+    #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
+    verbose: u8,
+
     #[structopt(name = "RECIPE", help = "input", parse(from_os_str))]
     filename: Option<PathBuf>,
 }
@@ -294,11 +297,11 @@ impl Default for GitHubConfig {
 
 fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    let opt: Opt = Opt::from_args();
+    setup_log(opt.verbose)?;
     info!("Hello");
     info!("log level: {}", log::max_level());
 
-    let opt: Opt = Opt::from_args();
     debug!("opt: {:?}", opt);
 
     let project_dirs =
@@ -433,7 +436,7 @@ fn print_release(release: &Option<ResultRelease>, oss: &GithubOss) {
     match release {
         Some(release) => {
             if oss.version == release.tag.name {
-                println!("latest: repo={} tag={}", oss.repo, release.tag.name)
+                info!("latest: repo={} tag={}", oss.repo, release.tag.name)
             } else {
                 println!(
                     "new version was found: repo={} current={} latest={} url={}",
@@ -449,7 +452,7 @@ fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     match tag {
         Some(tag) => {
             if oss.version == tag.name {
-                println!("latest: repo={} tag={}", oss.repo, tag.name)
+                info!("latest: repo={} tag={}", oss.repo, tag.name)
             } else {
                 println!(
                     "new version was found: repo={} current={} latest={} url={}",
@@ -500,4 +503,17 @@ fn get_proxy() -> Option<String> {
     std::env::var("HTTPS_PROXY")
         .or_else(|_| std::env::var("https_proxy"))
         .ok()
+}
+
+fn setup_log(level: u8) -> Fallible<()> {
+    use log::LevelFilter::*;
+
+    let mut builder = env_logger::Builder::from_default_env();
+    let builder = match level {
+        0 => &mut builder,
+        1 => builder.filter_level(Info),
+        2 => builder.filter_level(Debug),
+        _ => builder.filter_level(Trace),
+    };
+    Ok(builder.try_init()?)
 }
