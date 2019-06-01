@@ -22,6 +22,13 @@ struct Opt {
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
 
+    #[structopt(
+        long = "query-per-repo",
+        help = "a querying number of the tag or releases",
+        default_value = "10"
+    )]
+    query_per_repo: i32,
+
     #[structopt(name = "RECIPE", help = "input", parse(from_os_str))]
     filename: Option<PathBuf>,
 }
@@ -333,7 +340,7 @@ fn main() -> Fallible<()> {
         client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
     }
 
-    let body = generate_body(&oss_list.oss, false, 10)?;
+    let body = generate_body(&oss_list.oss, false, opt.query_per_repo)?;
     trace!("{}", body);
     let result = client_builder
         .build()?
