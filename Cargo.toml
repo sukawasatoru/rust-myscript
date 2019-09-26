@@ -9,7 +9,7 @@ failure = "0.1.5"
 
 [dependencies]
 log = "0.4.6"
-env_logger = "0.6.1"
+env_logger = "0.7.0"
 directories = "2.0.2"
 dotenv = "0.14.0"
 failure = "0.1.5"
