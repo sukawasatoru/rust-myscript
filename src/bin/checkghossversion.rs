@@ -335,7 +335,7 @@ async fn main() -> Fallible<()> {
 
     trace!("list={:?}", oss_list);
 
-    let mut client_builder = reqwest::Client::builder();
+    let mut client_builder = reqwest::Client::builder().user_agent("checkghossversion");
 
     if let Some(proxy) = get_proxy() {
         client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
