@@ -8,11 +8,14 @@ edition = "2018"
 failure = "=0.1.6"
 
 [dependencies]
-log = "=0.4.8"
-env_logger = "=0.7.1"
+blake2 = "=0.8.1"
 directories = "=2.0.2"
+env_logger = "=0.7.1"
 dotenv = "=0.15.0"
 failure = "=0.1.6"
+futures = "=0.3.4"
+libc = "=0.2.66"
+log = "=0.4.8"
 regex = "=1.3.3"
 serde = "=1.0.104"
 serde_derive = "=1.0.104"
@@ -26,4 +29,4 @@ features = ["json"]
 
 [dependencies.tokio]
 version = "=0.2.10"
-features = ["macros"]
+features = ["fs", "macros"]
