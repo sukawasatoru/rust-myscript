@@ -29,7 +29,8 @@ struct Opt {
     slack_notify_url: String,
 }
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -81,7 +82,7 @@ fn main() -> Fallible<()> {
                 notify_terminal(&context, &ps_info).ok();
             }
 
-            match notify_slack(&context, &ps_info) {
+            match notify_slack(&context, &ps_info).await {
                 Ok(data) => info!("notify success: {}", data),
                 Err(e) => info!("notify fail: {}", e),
             };
@@ -114,7 +115,7 @@ fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
 }
 
 fn check_terminal_notifier(executable_name: &str) -> bool {
-    if let Ok(_) = std::env::var("SSH_TTY") {
+    if std::env::var("SSH_TTY").is_ok() {
         debug!("has SSH_TTY");
         return false;
     }
@@ -139,7 +140,7 @@ fn notify_terminal(context: &Context, ps_info: &PSInfo) -> Fallible<()> {
     Ok(())
 }
 
-fn notify_slack(context: &Context, ps_info: &PSInfo) -> Fallible<String> {
+async fn notify_slack(context: &Context, ps_info: &PSInfo) -> Fallible<String> {
     debug!("payload: {}", generate_slack_payload(&context, &ps_info));
     let ret = context
         .reqwest_client
@@ -149,8 +150,10 @@ fn notify_slack(context: &Context, ps_info: &PSInfo) -> Fallible<String> {
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_str("application/x-www-form-urlencoded")?,
         )
-        .send()?
-        .text()?;
+        .send()
+        .await?
+        .text()
+        .await?;
 
     Ok(ret)
 }

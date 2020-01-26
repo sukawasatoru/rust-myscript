@@ -39,7 +39,7 @@ impl std::error::Error for IllegalFormatError {
         self.as_str()
     }
 
-    fn cause(&self) -> Option<&std::error::Error> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
         None
     }
 }
@@ -121,9 +121,9 @@ fn create_entity(input: &str) -> Result<Entity, IllegalFormatError> {
     for part in &list {
         if !part.is_empty() {
             if ret.hash.is_empty() {
-                ret.hash = part.to_string();
+                ret.hash = (*part).to_string();
             } else {
-                ret.name = part.to_string();
+                ret.name = (*part).to_string();
             }
         }
     }

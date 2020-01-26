@@ -41,7 +41,7 @@ enum CheckMethod {
 }
 
 // TODO: E0723.
-const GITHUB_OSS_FIELDS: &'static [&'static str] = &[
+const GITHUB_OSS_FIELDS: &[&str] = &[
     "repo",
     "version",
     "version_rule",
@@ -302,7 +302,8 @@ impl Default for GitHubConfig {
     }
 }
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     let opt: Opt = Opt::from_args();
     setup_log(opt.verbose)?;
@@ -334,7 +335,7 @@ fn main() -> Fallible<()> {
 
     trace!("list={:?}", oss_list);
 
-    let mut client_builder = reqwest::ClientBuilder::new();
+    let mut client_builder = reqwest::Client::builder();
 
     if let Some(proxy) = get_proxy() {
         client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
@@ -347,8 +348,10 @@ fn main() -> Fallible<()> {
         .post(&oss_list.github.host)
         .bearer_auth(ghtoken)
         .body(body)
-        .send()?
-        .text()?;
+        .send()
+        .await?
+        .text()
+        .await?;
     trace!("result={}", result);
 
     let mut result = serde_json::from_str::<Value>(&result)?;

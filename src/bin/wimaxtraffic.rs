@@ -30,7 +30,8 @@ impl Default for Config {
     }
 }
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     env_logger::init();
     let project_dir =
@@ -46,8 +47,10 @@ fn main() -> Fallible<()> {
             reqwest::header::AUTHORIZATION,
             reqwest::header::HeaderValue::from_str(&format!("Basic {}", token))?,
         )
-        .send()?
-        .text()?;
+        .send()
+        .await?
+        .text()
+        .await?;
     let reg = regex::Regex::new(r#"[0-9]*\.[0-9]*[bBMG][^<]*"#)?;
     let counters = reg.captures_iter(&body).collect::<Vec<_>>();
     println!(

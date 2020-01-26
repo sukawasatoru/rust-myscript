@@ -57,11 +57,11 @@ fn main() {
     }
 
     let target = if target.is_dir() {
-        let mut target_dir = target.to_owned();
+        let mut target_dir = target;
         target_dir.push(source.file_name().unwrap());
         target_dir
     } else {
-        target.to_owned()
+        target
     };
 
     debug!("target={:?}", target);
