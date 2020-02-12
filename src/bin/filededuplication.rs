@@ -41,7 +41,7 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
 struct Opt {
     /// Target directory to deduplicate
     #[structopt(short, long, parse(from_os_str))]
-    target_dir: PathBuf,
+    target_dir: Vec<PathBuf>,
 
     /// Backup destination
     #[structopt(short, long, parse(from_os_str), group = "backup")]
@@ -84,7 +84,10 @@ async fn main() -> Fallible<()> {
 
     debug!("target_dir: {:?}", opt.target_dir);
 
-    let files: Vec<PathBuf> = walk_dir(&opt.target_dir).await?;
+    let mut files = Vec::<PathBuf>::new();
+    for target in &opt.target_dir {
+        files.append(&mut walk_dir(target).await?);
+    }
 
     let mut digest = Blake2b::new();
     let mut file_hash_map = std::collections::HashMap::<Vec<u8>, Vec<PathBuf>>::new();
