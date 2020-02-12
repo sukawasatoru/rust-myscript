@@ -6,6 +6,7 @@ use std::process::exit;
 use blake2::{Blake2b, Digest};
 use futures::prelude::*;
 use log::{debug, info};
+use structopt::clap::ArgGroup;
 use structopt::StructOpt;
 use tokio::prelude::*;
 
@@ -36,20 +37,22 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
 }
 
 #[derive(StructOpt)]
+#[structopt(group = ArgGroup::with_name("backup").required(true))]
 struct Opt {
     /// Target directory to deduplicate
     #[structopt(short, long, parse(from_os_str))]
     target_dir: PathBuf,
 
     /// Backup destination
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(short, long, parse(from_os_str), group = "backup")]
     backup_dir: Option<PathBuf>,
 
     /// Override file without backup
-    #[structopt(short, long)]
+    #[structopt(short, long, group = "backup")]
     force: bool,
 }
 
+#[cfg(target_os = "macos")]
 extern "C" {
     static errno: libc::c_int;
 
@@ -62,6 +65,11 @@ extern "C" {
 
 #[tokio::main]
 async fn main() -> Fallible<()> {
+    if check_os().is_err() {
+        eprintln!("need to run on macOS");
+        exit(0);
+    }
+
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -72,13 +80,6 @@ async fn main() -> Fallible<()> {
     if opt.backup_dir.is_none() && !opt.force {
         eprintln!("need to set backup directory or use force flag");
         exit(1);
-    }
-
-    if let Some(ref backup_dir) = opt.backup_dir {
-        if backup_dir == &opt.target_dir {
-            eprintln!("cannot specify same target and backup path");
-            exit(1);
-        }
     }
 
     debug!("target_dir: {:?}", opt.target_dir);
@@ -156,6 +157,8 @@ async fn main() -> Fallible<()> {
             }
 
             println!("clone {:?} to {:?}", source, file_path);
+
+            #[cfg(target_os = "macos")]
             unsafe {
                 let ret_clonefile = clonefile(
                     CString::new(source.to_str().ok_or_err()?)?.as_ptr(),
@@ -213,4 +216,14 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = Fallible<Vec<
 
         Ok(files)
     })
+}
+
+#[cfg(target_os = "macos")]
+fn check_os() -> Fallible<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn check_os() -> Fallible<()> {
+    failure::bail!("")
 }
