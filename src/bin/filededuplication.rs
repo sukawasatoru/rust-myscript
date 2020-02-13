@@ -221,12 +221,10 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = Fallible<Vec<
     })
 }
 
-#[cfg(target_os = "macos")]
 fn check_os() -> Fallible<()> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn check_os() -> Fallible<()> {
-    failure::bail!("")
+    if cfg!(target_os = "macos") {
+        Ok(())
+    } else {
+        failure::bail!("")
+    }
 }
