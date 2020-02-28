@@ -24,7 +24,7 @@ structopt = "=0.3.9"
 toml = "=0.5.6"
 
 [dependencies.reqwest]
-version = "=0.10.1"
+version = "=0.10.3"
 features = ["json"]
 
 [dependencies.tokio]
