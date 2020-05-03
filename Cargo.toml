@@ -5,14 +5,14 @@ authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 edition = "2018"
 
 [build-dependencies]
-failure = "=0.1.7"
+failure = "=0.1.8"
 
 [dependencies]
 blake2 = "=0.8.1"
 directories = "=2.0.2"
 env_logger = "=0.7.1"
 dotenv = "=0.15.0"
-failure = "=0.1.7"
+failure = "=0.1.8"
 futures = "=0.3.4"
 libc = "=0.2.69"
 log = "=0.4.8"
