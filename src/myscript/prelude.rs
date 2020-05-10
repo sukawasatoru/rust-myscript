@@ -1,16 +1,13 @@
-use failure::Fail;
-pub use failure::Fallible;
-
-#[derive(Fail, Debug)]
-#[fail(display = "Option error")]
+#[derive(thiserror::Error, Debug)]
+#[error("Option error")]
 pub struct OptionError;
 
 pub trait OkOrErr<T> {
-    fn ok_or_err(self) -> Fallible<T>;
+    fn ok_or_err(self) -> anyhow::Result<T>;
 }
 
 impl<T> OkOrErr<T> for Option<T> {
-    fn ok_or_err(self) -> Fallible<T> {
+    fn ok_or_err(self) -> anyhow::Result<T> {
         self.ok_or_else(|| OptionError.into())
     }
 }
@@ -24,7 +21,7 @@ impl TomlLoader {
         Default::default()
     }
 
-    pub fn load<'a, T>(&'a mut self, path: &std::path::Path) -> Fallible<T>
+    pub fn load<'a, T>(&'a mut self, path: &std::path::Path) -> anyhow::Result<T>
     where
         T: serde::de::Deserialize<'a>,
     {

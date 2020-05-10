@@ -31,7 +31,7 @@ impl Default for Config {
 }
 
 #[tokio::main]
-async fn main() -> Fallible<()> {
+async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
     let project_dir =
@@ -83,7 +83,7 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn prepare_config(loader: &mut TomlLoader, path: &Path) -> Fallible<Config> {
+fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config> {
     if path.exists() {
         return loader.load(path);
     }

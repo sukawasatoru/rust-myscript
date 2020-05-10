@@ -30,7 +30,7 @@ struct Opt {
 }
 
 #[tokio::main]
-async fn main() -> Fallible<()> {
+async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -129,7 +129,7 @@ fn check_terminal_notifier(executable_name: &str) -> bool {
     }
 }
 
-fn notify_terminal(context: &Context, ps_info: &PSInfo) -> Fallible<()> {
+fn notify_terminal(context: &Context, ps_info: &PSInfo) -> anyhow::Result<()> {
     std::process::Command::new(&context.terminal_notifier_name)
         .args(&vec![
             "-message",
@@ -140,7 +140,7 @@ fn notify_terminal(context: &Context, ps_info: &PSInfo) -> Fallible<()> {
     Ok(())
 }
 
-async fn notify_slack(context: &Context, ps_info: &PSInfo) -> Fallible<String> {
+async fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<String> {
     debug!("payload: {}", generate_slack_payload(&context, &ps_info));
     let ret = context
         .reqwest_client

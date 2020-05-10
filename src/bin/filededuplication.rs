@@ -64,7 +64,7 @@ extern "C" {
 }
 
 #[tokio::main]
-async fn main() -> Fallible<()> {
+async fn main() -> anyhow::Result<()> {
     if check_os().is_err() {
         eprintln!("need to run on macOS");
         exit(0);
@@ -180,7 +180,7 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = Fallible<Vec<PathBuf>>>>> {
+fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Result<Vec<PathBuf>>>>> {
     Box::pin(async move {
         let mut read_dir: tokio::fs::ReadDir = tokio::fs::read_dir(target_dir).await?;
         let mut files = Vec::<PathBuf>::new();
@@ -221,10 +221,10 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = Fallible<Vec<
     })
 }
 
-fn check_os() -> Fallible<()> {
+fn check_os() -> anyhow::Result<()> {
     if cfg!(target_os = "macos") {
         Ok(())
     } else {
-        failure::bail!("")
+        anyhow::bail!("")
     }
 }

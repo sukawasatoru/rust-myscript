@@ -1,5 +1,3 @@
-use dotenv;
-use env_logger;
 use log::{debug, info};
 
 #[derive(Debug)]

@@ -1,7 +1,5 @@
 use std::env::Args;
 
-use dotenv;
-use env_logger;
 use log::info;
 
 fn main() {

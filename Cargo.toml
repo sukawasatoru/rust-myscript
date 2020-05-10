@@ -5,14 +5,14 @@ authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 edition = "2018"
 
 [build-dependencies]
-failure = "=0.1.7"
+anyhow = "=1.0.28"
 
 [dependencies]
+anyhow = "=1.0.28"
 blake2 = "=0.8.1"
 directories = "=2.0.2"
 env_logger = "=0.7.1"
 dotenv = "=0.15.0"
-failure = "=0.1.7"
 futures = "=0.3.4"
 libc = "=0.2.69"
 log = "=0.4.8"
@@ -21,6 +21,7 @@ serde = "=1.0.106"
 serde_derive = "=1.0.106"
 serde_json = "=1.0.52"
 structopt = "=0.3.14"
+thiserror = "=1.0.16"
 toml = "=0.5.6"
 
 [dependencies.reqwest]

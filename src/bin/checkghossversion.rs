@@ -303,7 +303,7 @@ impl Default for GitHubConfig {
 }
 
 #[tokio::main]
-async fn main() -> Fallible<()> {
+async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     let opt: Opt = Opt::from_args();
     setup_log(opt.verbose)?;
@@ -406,7 +406,7 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> Fallible<String> {
+fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> anyhow::Result<String> {
     let regex = Regex::new(r"[-./]")?;
     let mut query_body = String::new();
     for github_oss in oss_list {
@@ -474,7 +474,7 @@ fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     }
 }
 
-fn prepare_config(loader: &mut TomlLoader, path: &Path) -> Fallible<Config> {
+fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config> {
     if path.exists() {
         return loader.load(path);
     }
@@ -515,7 +515,7 @@ fn get_proxy() -> Option<String> {
         .ok()
 }
 
-fn setup_log(level: u8) -> Fallible<()> {
+fn setup_log(level: u8) -> anyhow::Result<()> {
     use log::LevelFilter::*;
 
     let mut builder = env_logger::Builder::from_default_env();

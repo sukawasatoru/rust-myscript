@@ -8,8 +8,6 @@ extern crate structopt;
 
 use std::{path::PathBuf, process::Command};
 
-use dotenv;
-use env_logger;
 use log::{debug, info};
 use structopt::StructOpt;
 

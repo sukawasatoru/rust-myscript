@@ -3,15 +3,13 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use failure::format_err;
+use anyhow::anyhow;
 
-type Result<T> = std::result::Result<T, failure::Error>;
-
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     checkghossversion()
 }
 
-fn checkghossversion() -> Result<()> {
+fn checkghossversion() -> anyhow::Result<()> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let asset_path = Path::new(&manifest_dir).join("asset");
 
@@ -21,7 +19,7 @@ fn checkghossversion() -> Result<()> {
         let file_path = asset_path.join(format!("{}.graphql", file_name));
         let mut file = match File::open(&file_path) {
             Ok(ok) => ok,
-            Err(e) => Err(format_err!("Failed to open file: {:?}, {:?}", file_path, e))?,
+            Err(e) => Err(anyhow!("Failed to open file: {:?}, {:?}", file_path, e))?,
         };
         file_string.clear();
         file.read_to_string(&mut file_string)?;
