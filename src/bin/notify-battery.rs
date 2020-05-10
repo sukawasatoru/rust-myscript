@@ -11,11 +11,13 @@ struct Context {
     reqwest_client: reqwest::Client,
     battery_level_regex: Regex,
     battery_remaining_regex: Regex,
+    charging_regex: Regex,
 }
 
 struct PSInfo {
     battery_level: u8,
     battery_remaining: String,
+    charging: bool,
 }
 
 #[derive(Debug, StructOpt)]
@@ -46,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
         reqwest_client: reqwest::Client::new(),
         battery_level_regex: Regex::new("	([0-9]*)%;")?,
         battery_remaining_regex: Regex::new("; ([0-9:]*) remaining present: true")?,
+        charging_regex: Regex::new("; charging;")?,
     };
 
     let use_terminal_notifier = check_terminal_notifier(&context.terminal_notifier_name);
@@ -76,6 +79,10 @@ async fn main() -> anyhow::Result<()> {
             "battery_level: {}, remaining: {}",
             ps_info.battery_level, ps_info.battery_remaining
         );
+
+        if ps_info.charging {
+            continue;
+        }
 
         if ps_info.battery_level <= notify_threshold {
             if use_terminal_notifier {
@@ -108,9 +115,12 @@ fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
         None => return None,
     };
 
+    let charging = context.charging_regex.captures(line).is_some();
+
     Some(PSInfo {
         battery_level,
         battery_remaining,
+        charging,
     })
 }
 
