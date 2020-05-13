@@ -29,5 +29,5 @@ version = "=0.10.4"
 features = ["json"]
 
 [dependencies.tokio]
-version = "=0.2.20"
+version = "=0.2.21"
 features = ["fs", "macros"]
