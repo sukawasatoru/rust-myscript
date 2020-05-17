@@ -5,10 +5,10 @@ authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 edition = "2018"
 
 [build-dependencies]
-anyhow = "=1.0.28"
+anyhow = "=1.0.31"
 
 [dependencies]
-anyhow = "=1.0.28"
+anyhow = "=1.0.31"
 blake2 = "=0.8.1"
 directories = "=2.0.2"
 env_logger = "=0.7.1"
