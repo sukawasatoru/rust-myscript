@@ -107,10 +107,10 @@ async fn main() -> anyhow::Result<()> {
                     continue 'file_entry;
                 }
             };
-            digest.input(&buf[0..n]);
+            digest.update(&buf[0..n]);
         }
 
-        let hash = digest.result_reset().to_vec();
+        let hash = digest.finalize_reset().to_vec();
         info!(
             "calculate end. path: {:?}, hash: {}",
             entry,
@@ -124,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    for (key, value) in file_hash_map {
+    for value in file_hash_map.values() {
         if value.len() < 2 {
             continue;
         }
