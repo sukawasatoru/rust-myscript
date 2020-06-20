@@ -30,4 +30,4 @@ features = ["json"]
 
 [dependencies.tokio]
 version = "=0.2.21"
-features = ["fs", "macros"]
+features = ["rt-threaded", "fs", "macros"]

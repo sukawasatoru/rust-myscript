@@ -1,7 +1,8 @@
 use std::convert::TryInto;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 
-use log::debug;
+use log::{debug, info, warn};
 use serde::export::Formatter;
 use structopt::StructOpt;
 
@@ -75,6 +76,8 @@ async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
+    info!("hello!");
+
     let opt: Opt = Opt::from_args();
 
     let start_oct = opt.start_address.octets();
@@ -88,11 +91,37 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let context = Context {
+    let context = Arc::new(Context {
         regex_product_name: regex::Regex::new(r"^PRODUCT_NAME=(.*)$")?,
-    };
+    });
 
     let client = reqwest::Client::new();
+
+    // let results = serial_strategy(context, client, &opt.start_address, &opt.end_address).await?;
+    let results = parallel_strategy(context, client, &opt.start_address, &opt.end_address).await?;
+
+    println!("results:");
+    for (ip_address, product_name, system_mode) in results {
+        println!(
+            "address: {}, product name: {}, system mode: {}",
+            ip_address, product_name, system_mode
+        );
+    }
+
+    info!("bye");
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+async fn serial_strategy(
+    context: Arc<Context>,
+    client: reqwest::Client,
+    start_address: &Ipv4Addr,
+    end_address: &Ipv4Addr,
+) -> anyhow::Result<Vec<(Ipv4Addr, String, SystemMode)>> {
+    let start_oct = start_address.octets();
+    let end_oct = end_address.octets();
 
     let mut current_oct = start_oct;
     let mut results = vec![];
@@ -101,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         debug!("request: {:?}", current_oct);
 
         if let Ok(product_name) =
-            retrieve_product_name(&context, client.clone(), &current_oct.into()).await
+            retrieve_product_name(context.clone(), client.clone(), &current_oct.into()).await
         {
             if let Ok(system_mode) = retrieve_system_mode(client.clone(), &current_oct.into()).await
             {
@@ -123,19 +152,76 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!();
 
-    println!("results:");
-    for (ip_address, product_name, system_mode) in results {
-        println!(
-            "address: {}, product name: {}, system mode: {}",
-            ip_address, product_name, system_mode
-        );
+    Ok(results)
+}
+
+async fn parallel_strategy(
+    context: Arc<Context>,
+    client: reqwest::Client,
+    start_address: &Ipv4Addr,
+    end_address: &Ipv4Addr,
+) -> anyhow::Result<Vec<(Ipv4Addr, String, SystemMode)>> {
+    let mut current_oct = start_address.octets();
+    let end_oct = end_address.octets();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+
+    loop {
+        let address = current_oct.into();
+        let context = context.clone();
+        let client = client.clone();
+        let mut tx = tx.clone();
+        tokio::task::spawn(async move {
+            let context = context;
+            let product_name = match retrieve_product_name(context, client.clone(), &address).await
+            {
+                Ok(data) => data,
+                Err(_) => {
+                    eprint!(".");
+                    return;
+                }
+            };
+
+            let system_mode = match retrieve_system_mode(client.clone(), &current_oct.into()).await
+            {
+                Ok(data) => data,
+                Err(_) => {
+                    eprint!(".");
+                    return;
+                }
+            };
+
+            if let Err(_) = tx
+                .send((Ipv4Addr::from(current_oct), product_name, system_mode))
+                .await
+            {
+                warn!("failed to send result");
+                return;
+            }
+            eprint!("!");
+        });
+
+        if current_oct == end_oct {
+            break;
+        }
+
+        current_oct[3] += 1;
     }
 
-    Ok(())
+    // drop unused original tx.
+    drop(tx);
+
+    let mut ret = vec![];
+    while let Some(data) = rx.recv().await {
+        ret.push(data);
+    }
+
+    eprintln!();
+
+    Ok(ret)
 }
 
 async fn retrieve_product_name(
-    context: &Context,
+    context: Arc<Context>,
     client: reqwest::Client,
     target: &Ipv4Addr,
 ) -> anyhow::Result<String> {
