@@ -10,11 +10,17 @@ use rust_myscript::myscript::prelude::*;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
+    /// starting address of the sequence
     #[structopt(short, long, parse(try_from_str))]
     start_address: Ipv4Addr,
 
+    /// upper limit
     #[structopt(short, long, parse(try_from_str))]
     end_address: Ipv4Addr,
+
+    /// maximum time in milliseconds
+    #[structopt(short, long, default_value = "100")]
+    timeout: u64,
 }
 
 enum SystemMode {
@@ -69,6 +75,7 @@ impl TryInto<SystemMode> for i32 {
 
 struct Context {
     regex_product_name: regex::Regex,
+    timeout: std::time::Duration,
 }
 
 #[tokio::main]
@@ -93,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
 
     let context = Arc::new(Context {
         regex_product_name: regex::Regex::new(r"^PRODUCT_NAME=(.*)$")?,
+        timeout: std::time::Duration::from_millis(opt.timeout),
     });
 
     let client = reqwest::Client::new();
@@ -132,7 +140,8 @@ async fn serial_strategy(
         if let Ok(product_name) =
             retrieve_product_name(context.clone(), client.clone(), &current_oct.into()).await
         {
-            if let Ok(system_mode) = retrieve_system_mode(client.clone(), &current_oct.into()).await
+            if let Ok(system_mode) =
+                retrieve_system_mode(context.clone(), client.clone(), &current_oct.into()).await
             {
                 results.push((Ipv4Addr::from(current_oct), product_name, system_mode));
                 eprint!("!");
@@ -172,23 +181,25 @@ async fn parallel_strategy(
         let mut tx = tx.clone();
         tokio::task::spawn(async move {
             let context = context;
-            let product_name = match retrieve_product_name(context, client.clone(), &address).await
-            {
-                Ok(data) => data,
-                Err(_) => {
-                    eprint!(".");
-                    return;
-                }
-            };
+            let product_name =
+                match retrieve_product_name(context.clone(), client.clone(), &address).await {
+                    Ok(data) => data,
+                    Err(_) => {
+                        eprint!(".");
+                        return;
+                    }
+                };
 
-            let system_mode = match retrieve_system_mode(client.clone(), &current_oct.into()).await
-            {
-                Ok(data) => data,
-                Err(_) => {
-                    eprint!(".");
-                    return;
-                }
-            };
+            let system_mode =
+                match retrieve_system_mode(context.clone(), client.clone(), &current_oct.into())
+                    .await
+                {
+                    Ok(data) => data,
+                    Err(_) => {
+                        eprint!(".");
+                        return;
+                    }
+                };
 
             if let Err(_) = tx
                 .send((Ipv4Addr::from(current_oct), product_name, system_mode))
@@ -228,7 +239,7 @@ async fn retrieve_product_name(
     let mut form_data = std::collections::HashMap::new();
     form_data.insert("REQ_ID", "PRODUCT_NAME_GET");
 
-    let result_string = request_aterm(client, target, &form_data).await?;
+    let result_string = request_aterm(client, target, &context.timeout, &form_data).await?;
     let product_name = context
         .regex_product_name
         .captures(&result_string)
@@ -241,13 +252,14 @@ async fn retrieve_product_name(
 }
 
 async fn retrieve_system_mode(
+    context: Arc<Context>,
     client: reqwest::Client,
     target: &Ipv4Addr,
 ) -> anyhow::Result<SystemMode> {
     let mut form_data = std::collections::HashMap::new();
     form_data.insert("REQ_ID", "SYS_MODE_GET");
 
-    let ret = request_aterm(client, target, &form_data)
+    let ret = request_aterm(client, target, &context.timeout, &form_data)
         .await?
         .parse::<i32>()?
         .try_into()?;
@@ -257,6 +269,7 @@ async fn retrieve_system_mode(
 async fn request_aterm(
     client: reqwest::Client,
     target: &Ipv4Addr,
+    timeout: &std::time::Duration,
     form_data: &std::collections::HashMap<&'static str, &'static str>,
 ) -> anyhow::Result<String> {
     let response = client
@@ -265,7 +278,7 @@ async fn request_aterm(
             target
         ))
         .form(&form_data)
-        .timeout(std::time::Duration::from_millis(100))
+        .timeout(*timeout)
         .send()
         .await?;
 
