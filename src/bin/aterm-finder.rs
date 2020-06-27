@@ -116,7 +116,6 @@ async fn main() -> anyhow::Result<()> {
 
     let client = reqwest::Client::new();
 
-    // let results = serial_strategy(context, client, &opt.start_address, &opt.end_address).await?;
     let results = parallel_strategy(
         context,
         client,
@@ -137,55 +136,6 @@ async fn main() -> anyhow::Result<()> {
     info!("bye");
 
     Ok(())
-}
-
-#[allow(dead_code)]
-async fn serial_strategy(
-    context: Arc<Context>,
-    client: reqwest::Client,
-    start_address: &Ipv4Addr,
-    end_address: &Ipv4Addr,
-) -> anyhow::Result<Vec<(Ipv4Addr, String, SystemMode)>> {
-    let start_oct = start_address.octets();
-    let end_oct = end_address.octets();
-
-    let mut current_oct = start_oct;
-    let mut results = vec![];
-
-    loop {
-        debug!("request: {:?}", current_oct);
-
-        match retrieve_product_name(context.clone(), client.clone(), &current_oct.into()).await {
-            Ok(product_name) => {
-                match retrieve_system_mode(context.clone(), client.clone(), &current_oct.into())
-                    .await
-                {
-                    Ok(system_mode) => {
-                        results.push((Ipv4Addr::from(current_oct), product_name, system_mode));
-                        eprint!("!");
-                    }
-                    Err(e) => {
-                        trace!("{:?}", e);
-                        eprint!(".");
-                    }
-                }
-            }
-            Err(e) => {
-                trace!("{:?}", e);
-                eprint!(".");
-            }
-        }
-
-        if current_oct == end_oct {
-            break;
-        }
-
-        current_oct[3] += 1;
-    }
-
-    eprintln!();
-
-    Ok(results)
 }
 
 async fn parallel_strategy(
