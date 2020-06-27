@@ -21,6 +21,7 @@ serde_json = "=1.0.55"
 structopt = "=0.3.15"
 thiserror = "=1.0.20"
 toml = "=0.5.6"
+warp = "=0.2.3"
 
 [dependencies.reqwest]
 version = "=0.10.6"
