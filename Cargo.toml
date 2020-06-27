@@ -32,5 +32,5 @@ version = "=0.2.21"
 features = ["rt-threaded", "fs", "macros"]
 
 [dependencies.serde]
-version = "=1.0.113"
+version = "=1.0.114"
 features = ["derive"]
