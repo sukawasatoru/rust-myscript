@@ -1,18 +1,16 @@
+use log::{debug, info, trace};
+use regex::Regex;
+use rust_myscript::myscript::prelude::*;
+use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{
     fmt,
     fs::{self, File},
     io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
 };
-
-use log::{debug, info, trace};
-use regex::Regex;
-use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde_derive::{Deserialize, Serialize};
-use serde_json::{self, json, Value};
 use structopt::StructOpt;
-
-use rust_myscript::myscript::prelude::*;
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
@@ -69,7 +67,7 @@ impl GithubOssField {
     }
 }
 
-impl<'de> Deserialize<'de> for GithubOssField {
+impl<'de> serde::de::Deserialize<'de> for GithubOssField {
     fn deserialize<D>(deserializer: D) -> Result<GithubOssField, D::Error>
     where
         D: Deserializer<'de>,
@@ -222,7 +220,7 @@ impl<'de> Visitor<'de> for GithubOssVisitor {
     }
 }
 
-impl<'de> Deserialize<'de> for GithubOss {
+impl<'de> serde::de::Deserialize<'de> for GithubOss {
     fn deserialize<D>(deserializer: D) -> Result<GithubOss, D::Error>
     where
         D: Deserializer<'de>,

@@ -1,14 +1,12 @@
+use log::{debug, info};
+use rust_myscript::myscript::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
-
-use log::{debug, info};
-use serde_derive::{Deserialize, Serialize};
 use structopt::StructOpt;
-
-use rust_myscript::myscript::prelude::*;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "trimhistory")]

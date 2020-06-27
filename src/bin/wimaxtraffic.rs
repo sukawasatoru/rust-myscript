@@ -1,13 +1,11 @@
+use log::info;
+use rust_myscript::myscript::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
     io::{prelude::*, BufWriter},
     path::Path,
 };
-
-use log::info;
-use serde_derive::{Deserialize, Serialize};
-
-use rust_myscript::myscript::prelude::*;
 
 #[derive(Deserialize, Serialize)]
 struct Config {
