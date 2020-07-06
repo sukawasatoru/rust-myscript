@@ -1,24 +1,14 @@
-use log::{debug, info};
-
 fn main() {
-    dotenv::dotenv().ok();
-    env_logger::init();
-
-    info!("Hello");
-
     let paths = std::env::var("PATH").unwrap();
-    debug!("{}", paths);
 
-    let mut dest: Vec<&str> = Vec::new();
+    let mut index = 0;
+    let mut dest = [""; 1024];
     for path in paths.split(':') {
-        debug!("path: {}", path);
         if !dest.contains(&path) {
-            debug!("append: {}", path);
-            dest.push(&path);
+            dest[index] = path;
+            index += 1;
         }
     }
 
-    println!("{}", &dest.join(":"));
-
-    info!("Bye");
+    print!("{}", dest[..index].join(":"));
 }
