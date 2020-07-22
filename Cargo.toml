@@ -31,7 +31,7 @@ version = "=0.10.6"
 features = ["blocking", "json"]
 
 [dependencies.tokio]
-version = "=0.2.21"
+version = "=0.2.22"
 features = ["rt-threaded", "fs", "macros", "net"]
 
 [dependencies.serde]
