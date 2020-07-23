@@ -59,7 +59,6 @@ fn main() -> anyhow::Result<()> {
         .json::<serde_json::Value>()?;
 
     let mut dns_record_identifier: Option<String> = None;
-    let mut ttl = 1;
     let select_domain = format!("_acme-challenge.{}", domain);
     for entry in dns_records_response["result"]
         .as_array()
@@ -74,7 +73,6 @@ fn main() -> anyhow::Result<()> {
                     .context("the id is not String")?
                     .to_string(),
             );
-            ttl = entry["ttl"].as_u64().context("the ttl is not Number")?;
             break;
         }
     }
@@ -100,8 +98,6 @@ fn main() -> anyhow::Result<()> {
     if status != reqwest::StatusCode::OK {
         anyhow::bail!("failed to update record: {}", ret_text);
     }
-
-    std::thread::sleep(std::time::Duration::from_secs(ttl));
 
     for retry_second in [1, 3, 5, 7, 11, 13, 17, 19, 23, 29].iter() {
         let txt_u8 = trust_dns_resolver::Resolver::default()?
