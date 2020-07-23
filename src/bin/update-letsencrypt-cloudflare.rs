@@ -58,30 +58,18 @@ fn main() -> anyhow::Result<()> {
         .send()?
         .json::<serde_json::Value>()?;
 
-    let mut dns_record_identifier: Option<String> = None;
     let select_domain = format!("_acme-challenge.{}", domain);
-    for entry in dns_records_response["result"]
+    let dns_record_identifier = dns_records_response["result"]
         .as_array()
         .context("result is not array")?
         .iter()
-    {
-        let name = entry["name"].as_str().context("the name is not String")?;
-        if name == select_domain {
-            dns_record_identifier = Some(
-                entry["id"]
-                    .as_str()
-                    .context("the id is not String")?
-                    .to_string(),
-            );
-            break;
-        }
-    }
-
-    if dns_record_identifier.is_none() {
-        anyhow::bail!("the domain {} is not found", select_domain);
-    }
-
-    let dns_record_identifier = dns_record_identifier.unwrap();
+        .find_map(|data| {
+            data["name"]
+                .as_str()
+                .filter(|data| data == &select_domain)
+                .and_then(|_| data["id"].as_str().map(ToOwned::to_owned))
+        })
+        .with_context(|| format!("the domain {} is not found", select_domain))?;
 
     let patch_dns_record_response = client
         .patch(&format!(
