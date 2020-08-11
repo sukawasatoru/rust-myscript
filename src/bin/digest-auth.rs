@@ -49,12 +49,13 @@ async fn main() -> anyhow::Result<()> {
 
     let opt: Opt = Opt::from_args();
 
+    let filter_auth_header = warp::header::optional("Authorization");
     let realm = std::sync::Arc::new(opt.realm);
 
     let digest_2069_realm = realm.clone();
     let digest_2069 = warp::get()
         .and(warp::path!("digest_2069"))
-        .and(warp::header::optional(header::AUTHORIZATION.as_str()))
+        .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
@@ -119,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
     let md5_auth_realm = realm.clone();
     let md5_auth = warp::get()
         .and(warp::path!("md5_auth"))
-        .and(warp::header::optional(header::AUTHORIZATION.as_str()))
+        .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
@@ -228,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
     let md5_sess_auth_realm = realm.clone();
     let md5_sess_auth = warp::get()
         .and(warp::path!("md5_sess_auth"))
-        .and(warp::header::optional(header::AUTHORIZATION.as_str()))
+        .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
@@ -355,7 +356,7 @@ async fn main() -> anyhow::Result<()> {
     let md5_auth_int_realm = realm.clone();
     let md5_auth_int = warp::get()
         .and(warp::path!("md5_auth_int"))
-        .and(warp::header::optional(header::AUTHORIZATION.as_str()))
+        .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .and(warp::body::bytes())
         .map(
@@ -475,7 +476,7 @@ async fn main() -> anyhow::Result<()> {
     let md5_auth_int_post_realm = realm.clone();
     let md5_auth_int_post = warp::post()
         .and(warp::path!("md5_auth_int"))
-        .and(warp::header::optional(header::AUTHORIZATION.as_str()))
+        .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .and(warp::body::bytes())
         .map(
@@ -735,11 +736,11 @@ struct DigestHeaderParameters {
 
 fn get_non_unq_value(segment: &str) -> Option<&str> {
     // orig: abc123=value
-    match segment.find("=") {
+    match segment.find('=') {
         Some(index) => Some(&segment[index + 1..segment.len()]),
         None => {
             warn!("unexpected format: {}", segment);
-            return None;
+            None
         }
     }
 }
@@ -750,7 +751,7 @@ fn get_unq_value(segment: &str) -> Option<&str> {
         Some(index) => Some(&segment[index + 2..segment.len() - 1]),
         None => {
             warn!("unexpected format: {}", segment);
-            return None;
+            None
         }
     }
 }
