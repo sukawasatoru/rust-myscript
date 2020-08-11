@@ -1,0 +1,9 @@
+version: '3.0'
+services:
+  rust:
+    image: docker.pkg.github.com/sukawasatoru/rust-myscript/toolchain:v0.1.0
+    build:
+      context: .
+      dockerfile: build.dockerfile
+      args:
+        RUST_VERSION: 1.45.2
