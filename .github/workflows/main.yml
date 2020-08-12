@@ -17,13 +17,3 @@ jobs:
       run: cargo build --release
     - name: Tests
       run: cargo test
-  linux:
-    runs-on: ubuntu-latest
-    container:
-      image: docker://docker.pkg.github.com/sukawasatoru/rust-myscript/toolchain:v0.1.0
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build
-        run: cargo build --release
-      - name: Tests
-        run: cargo test
