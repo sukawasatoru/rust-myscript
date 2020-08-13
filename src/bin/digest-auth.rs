@@ -1,6 +1,6 @@
-use anyhow::Context;
+use anyhow::Context as AnyhowContext;
+use digest::Digest;
 use log::{debug, info, warn};
-use md5::Digest;
 use std::str::FromStr;
 use structopt::StructOpt;
 use warp::http::header;
@@ -9,17 +9,282 @@ use warp::Filter;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
+    #[structopt(long)]
+    password: String,
+
     #[structopt(short, long)]
     realm: String,
 
-    #[structopt(short, long)]
+    #[structopt(long)]
     port: u16,
+}
+
+/// - https://tools.ietf.org/html/rfc7616#page-28
+/// - https://tools.ietf.org/html/rfc3230#section-4.1.1
+/// - https://tools.ietf.org/html/rfc5843
+/// - https://www.iana.org/assignments/http-dig-alg/http-dig-alg.xhtml
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Algorithm {
+    Md5,
+    Sha,
+    Sha256,
+    Sha512,
+}
+
+impl Algorithm {
+    fn rfc_name(&self) -> &'static str {
+        match self {
+            Algorithm::Md5 => "MD5",
+            Algorithm::Sha => "SHA",
+            Algorithm::Sha256 => "SHA-256",
+            Algorithm::Sha512 => "SHA-512",
+        }
+    }
+
+    fn digest_auth(
+        &self,
+        http_method: &str,
+        username: &str,
+        password: &str,
+        realm: &str,
+        nonce: &str,
+        uri: &str,
+        cnonce: &str,
+        nc: &str,
+    ) -> String {
+        match self {
+            Algorithm::Md5 => {
+                let mut digest = md5::Md5::new();
+                digest_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha => {
+                let mut digest = sha1::Sha1::new();
+                digest_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha256 => {
+                let mut digest = sha2::Sha256::new();
+                digest_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha512 => {
+                let mut digest = sha2::Sha512::new();
+                digest_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+        }
+    }
+
+    fn digest_sess_auth(
+        &self,
+        http_method: &str,
+        username: &str,
+        password: &str,
+        realm: &str,
+        nonce: &str,
+        uri: &str,
+        cnonce: &str,
+        nc: &str,
+    ) -> String {
+        match self {
+            Algorithm::Md5 => {
+                let mut digest = md5::Md5::new();
+                digest_sess_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha => {
+                let mut digest = sha1::Sha1::new();
+                digest_sess_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha256 => {
+                let mut digest = sha2::Sha256::new();
+                digest_sess_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+            Algorithm::Sha512 => {
+                let mut digest = sha2::Sha512::new();
+                digest_sess_auth(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                )
+            }
+        }
+    }
+
+    fn digest_auth_int(
+        &self,
+        http_method: &str,
+        username: &str,
+        password: &str,
+        realm: &str,
+        nonce: &str,
+        uri: &str,
+        cnonce: &str,
+        nc: &str,
+        body: &[u8],
+    ) -> String {
+        match self {
+            Algorithm::Md5 => {
+                let mut digest = md5::Md5::new();
+                digest_auth_int(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                    body,
+                )
+            }
+            Algorithm::Sha => {
+                let mut digest = sha1::Sha1::new();
+                digest_auth_int(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                    body,
+                )
+            }
+            Algorithm::Sha256 => {
+                let mut digest = sha2::Sha256::new();
+                digest_auth_int(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                    body,
+                )
+            }
+            Algorithm::Sha512 => {
+                let mut digest = sha2::Sha512::new();
+                digest_auth_int(
+                    &mut digest,
+                    http_method,
+                    username,
+                    password,
+                    realm,
+                    nonce,
+                    uri,
+                    cnonce,
+                    nc,
+                    body,
+                )
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Qop {
+    Auth,
+    AuthInt,
+}
+
+impl std::str::FromStr for Qop {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "auth" => Ok(Qop::Auth),
+            "auth-int" => Ok(Qop::AuthInt),
+            _ => Err(anyhow::anyhow!("unexpected qop: {}", s)),
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct DigestQuery {
     #[serde(rename = "valid")]
     ignore_cert_error: Option<String>,
+
+    algorithm: Option<Algorithm>,
 }
 
 struct HexFormat<'a>(&'a [u8]);
@@ -40,6 +305,11 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
     }
 }
 
+struct Context {
+    password: String,
+    realm: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -50,16 +320,19 @@ async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
 
     let filter_auth_header = warp::header::optional("Authorization");
-    let realm = std::sync::Arc::new(opt.realm);
+    let ctx = std::sync::Arc::new(Context {
+        password: opt.password,
+        realm: opt.realm,
+    });
 
-    let digest_2069_realm = realm.clone();
+    let digest_2069_ctx = ctx.clone();
     let digest_2069 = warp::get()
         .and(warp::path!("digest_2069"))
         .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
-                let realm = digest_2069_realm.clone();
+                let ctx = digest_2069_ctx.clone();
                 info!(
                     "rfc2069 header: {:?}, query: {:?}",
                     header_authorization, digest_query
@@ -71,7 +344,7 @@ async fn main() -> anyhow::Result<()> {
                         header::WWW_AUTHENTICATE,
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm=MD5"#,
-                            realm,
+                            ctx.realm,
                             uuid::Uuid::new_v4().to_string()
                         ),
                     )
@@ -101,7 +374,7 @@ async fn main() -> anyhow::Result<()> {
                     &mut digest,
                     "GET",
                     &header_authorization.username,
-                    "bar",
+                    &ctx.password,
                     &header_authorization.realm,
                     &header_authorization.nonce,
                     &header_authorization.uri,
@@ -117,27 +390,29 @@ async fn main() -> anyhow::Result<()> {
             },
         );
 
-    let md5_auth_realm = realm.clone();
+    let md5_auth_ctx = ctx.clone();
     let md5_auth = warp::get()
         .and(warp::path!("md5_auth"))
         .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
-                let realm = md5_auth_realm.clone();
+                let ctx = md5_auth_ctx.clone();
                 info!(
                     "md5_auth header: {:?}, query: {:?}",
                     header_authorization, digest_query
                 );
 
+                let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
                     .header(
                         header::WWW_AUTHENTICATE,
                         format!(
-                            r#"Digest realm="{}", nonce="{}", algorithm=MD5, qop="auth""#,
-                            realm,
-                            uuid::Uuid::new_v4().to_string()
+                            r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth""#,
+                            ctx.realm,
+                            uuid::Uuid::new_v4().to_string(),
+                            algorithm.rfc_name()
                         ),
                     )
                     .body("ng".to_owned());
@@ -182,12 +457,10 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let mut digest = md5::Md5::new();
-                let calc_hash = digest_auth(
-                    &mut digest,
+                let calc_hash = algorithm.digest_auth(
                     "GET",
                     &header_authorization.username,
-                    "bar",
+                    &ctx.password,
                     &header_authorization.realm,
                     &header_authorization.nonce,
                     &header_authorization.uri,
@@ -202,11 +475,10 @@ async fn main() -> anyhow::Result<()> {
                             "Authentication-Info",
                             format!(
                                 r#"rspauth="{}", cnonce="{}", nc={}, qop={}"#,
-                                digest_auth(
-                                    &mut digest,
+                                algorithm.digest_auth(
                                     "",
                                     &header_authorization.username,
-                                    "bar",
+                                    &ctx.password,
                                     &header_authorization.realm,
                                     &header_authorization.nonce,
                                     &header_authorization.uri,
@@ -226,27 +498,29 @@ async fn main() -> anyhow::Result<()> {
             },
         );
 
-    let md5_sess_auth_realm = realm.clone();
+    let md5_sess_auth_ctx = ctx.clone();
     let md5_sess_auth = warp::get()
         .and(warp::path!("md5_sess_auth"))
         .and(filter_auth_header)
         .and(warp::query::<DigestQuery>())
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
-                let realm = md5_sess_auth_realm.clone();
+                let ctx = md5_sess_auth_ctx.clone();
                 info!(
                     "md5_sess_auth header: {:?}, query: {:?}",
                     header_authorization, digest_query
                 );
 
+                let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
                     .header(
                         header::WWW_AUTHENTICATE,
                         format!(
-                            r#"Digest realm="{}", nonce="{}", algorithm=MD5-sess, qop="auth""#,
-                            realm,
-                            uuid::Uuid::new_v4().to_string()
+                            r#"Digest realm="{}", nonce="{}", algorithm={}-sess, qop="auth""#,
+                            ctx.realm,
+                            uuid::Uuid::new_v4().to_string(),
+                            algorithm.rfc_name()
                         ),
                     )
                     .body("ng".to_owned());
@@ -291,12 +565,10 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let mut digest = md5::Md5::new();
-                let calc_hash = digest_sess_auth(
-                    &mut digest,
+                let calc_hash = algorithm.digest_sess_auth(
                     "GET",
                     &header_authorization.username,
-                    "bar",
+                    &ctx.password,
                     &header_authorization.realm,
                     &header_authorization.nonce,
                     &header_authorization.uri,
@@ -311,11 +583,10 @@ async fn main() -> anyhow::Result<()> {
                             "Authentication-Info",
                             format!(
                                 r#"rspauth="{}", cnonce="{}", nc={}, qop={}"#,
-                                digest_sess_auth(
-                                    &mut digest,
+                                algorithm.digest_sess_auth(
                                     "",
                                     &header_authorization.username,
-                                    "bar",
+                                    &ctx.password,
                                     &header_authorization.realm,
                                     &header_authorization.nonce,
                                     &header_authorization.uri,
@@ -353,7 +624,7 @@ async fn main() -> anyhow::Result<()> {
         )
     });
 
-    let md5_auth_int_realm = realm.clone();
+    let md5_auth_int_ctx = ctx.clone();
     let md5_auth_int = warp::get()
         .and(warp::path!("md5_auth_int"))
         .and(filter_auth_header)
@@ -363,7 +634,7 @@ async fn main() -> anyhow::Result<()> {
             move |header_authorization: Option<String>,
                   digest_query: DigestQuery,
                   body: bytes::Bytes| {
-                let realm = md5_auth_int_realm.clone();
+                let ctx = md5_auth_int_ctx.clone();
                 info!(
                     "md5_auth_int (GET) header: {:?}, query: {:?}, body: {:?}",
                     header_authorization,
@@ -371,14 +642,16 @@ async fn main() -> anyhow::Result<()> {
                     String::from_utf8_lossy(&body)
                 );
 
+                let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
                     .header(
                         header::WWW_AUTHENTICATE,
                         format!(
-                            r#"Digest realm="{}", nonce="{}", algorithm=MD5, qop="auth-int""#,
-                            realm,
-                            uuid::Uuid::new_v4().to_string()
+                            r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth-int""#,
+                            ctx.realm,
+                            uuid::Uuid::new_v4().to_string(),
+                            algorithm.rfc_name()
                         ),
                     )
                     .body("".to_owned());
@@ -423,22 +696,16 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let mut digest = md5::Md5::new();
-                if !body.is_empty() {
-                    digest.update(body);
-                }
-                let body_hash = HexFormat(digest.finalize_reset().as_slice()).to_string();
-                let calc_hash = digest_auth_int(
-                    &mut digest,
+                let calc_hash = algorithm.digest_auth_int(
                     "GET",
                     &header_authorization.username,
-                    "bar",
+                    &ctx.password,
                     &header_authorization.realm,
                     &header_authorization.nonce,
                     &header_authorization.uri,
                     cnonce,
                     nc,
-                    &body_hash,
+                    &body,
                 );
 
                 if calc_hash == header_authorization.response {
@@ -448,17 +715,16 @@ async fn main() -> anyhow::Result<()> {
                             "Authentication-Info",
                             format!(
                                 r#"rspauth="{}", cnonce="{}", nc={}, qop={}"#,
-                                digest_auth_int(
-                                    &mut digest,
+                                algorithm.digest_auth_int(
                                     "",
                                     &header_authorization.username,
-                                    "bar",
+                                    &ctx.password,
                                     &header_authorization.realm,
                                     &header_authorization.nonce,
                                     &header_authorization.uri,
                                     cnonce,
                                     nc,
-                                    &body_hash
+                                    &body
                                 ),
                                 cnonce,
                                 nc,
@@ -473,7 +739,7 @@ async fn main() -> anyhow::Result<()> {
             },
         );
 
-    let md5_auth_int_post_realm = realm.clone();
+    let md5_auth_int_post_ctx = ctx.clone();
     let md5_auth_int_post = warp::post()
         .and(warp::path!("md5_auth_int"))
         .and(filter_auth_header)
@@ -483,7 +749,7 @@ async fn main() -> anyhow::Result<()> {
             move |header_authorization: Option<String>,
                   digest_query: DigestQuery,
                   body: bytes::Bytes| {
-                let realm = md5_auth_int_post_realm.clone();
+                let ctx = md5_auth_int_post_ctx.clone();
                 info!(
                     "md5_auth_int (POST) header: {:?}, query: {:?} body {:?}",
                     header_authorization,
@@ -491,14 +757,16 @@ async fn main() -> anyhow::Result<()> {
                     String::from_utf8_lossy(&body)
                 );
 
+                let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
                     .header(
                         header::WWW_AUTHENTICATE,
                         format!(
-                            r#"Digest realm="{}", nonce="{}", algorithm=MD5, qop="auth-int""#,
-                            realm,
-                            uuid::Uuid::new_v4().to_string()
+                            r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth-int""#,
+                            ctx.realm,
+                            uuid::Uuid::new_v4().to_string(),
+                            algorithm.rfc_name()
                         ),
                     )
                     .body("".to_owned());
@@ -543,22 +811,16 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let mut digest = md5::Md5::new();
-                if !body.is_empty() {
-                    digest.update(body);
-                }
-                let body_hash = HexFormat(digest.finalize_reset().as_slice()).to_string();
-                let calc_hash = digest_auth_int(
-                    &mut digest,
+                let calc_hash = algorithm.digest_auth_int(
                     "POST",
                     &header_authorization.username,
-                    "bar",
+                    &ctx.password,
                     &header_authorization.realm,
                     &header_authorization.nonce,
                     &header_authorization.uri,
                     cnonce,
                     nc,
-                    &body_hash,
+                    &body,
                 );
 
                 if calc_hash == header_authorization.response {
@@ -568,17 +830,16 @@ async fn main() -> anyhow::Result<()> {
                             "Authentication-Info",
                             format!(
                                 r#"rspauth="{}", cnonce="{}", nc={}, qop={}"#,
-                                digest_auth_int(
-                                    &mut digest,
+                                algorithm.digest_auth_int(
                                     "",
                                     &header_authorization.username,
-                                    "bar",
+                                    &ctx.password,
                                     &header_authorization.realm,
                                     &header_authorization.nonce,
                                     &header_authorization.uri,
                                     cnonce,
                                     nc,
-                                    &body_hash
+                                    &body
                                 ),
                                 cnonce,
                                 nc,
@@ -707,12 +968,17 @@ fn digest_auth_int<D: Digest>(
     uri: &str,
     cnonce: &str,
     nc: &str,
-    body_hash: &str,
+    body: &[u8],
 ) -> String {
     digest.reset();
 
     update_parameters_to_digest(digest, [username, realm, password]);
     let a1 = HexFormat(digest.finalize_reset().as_slice()).to_string();
+
+    if !body.is_empty() {
+        digest.update(body);
+    }
+    let body_hash = HexFormat(digest.finalize_reset().as_slice()).to_string();
 
     update_parameters_to_digest(digest, [http_method, uri, &body_hash]);
     let a2 = HexFormat(digest.finalize_reset().as_slice()).to_string();
@@ -729,7 +995,7 @@ struct DigestHeaderParameters {
     uri: String,
     cnonce: Option<String>,
     nc: Option<String>,
-    qop: Option<String>,
+    qop: Option<Qop>,
     response: String,
     algorithm: Option<String>,
 }
@@ -790,8 +1056,17 @@ impl std::str::FromStr for DigestHeaderParameters {
                 cnonce = get_unq_value(entry);
             } else if nc.is_none() && entry.starts_with("nc=") {
                 nc = get_non_unq_value(entry);
+            } else if qop.is_none() && entry.starts_with(r#"qop=""#) {
+                // get_unq_value for safari.
+                qop = match get_unq_value(entry) {
+                    Some(d) => Some(Qop::from_str(d)?),
+                    None => None,
+                };
             } else if qop.is_none() && entry.starts_with("qop=") {
-                qop = get_non_unq_value(entry);
+                qop = match get_non_unq_value(entry) {
+                    Some(d) => Some(Qop::from_str(d)?),
+                    None => None,
+                };
             } else if response.is_none() && entry.starts_with(r#"response=""#) {
                 response = get_unq_value(entry);
             } else if algorithm.is_none() && entry.starts_with("algorithm=") {
@@ -808,7 +1083,7 @@ impl std::str::FromStr for DigestHeaderParameters {
         let response = response.context("missing response")?;
 
         let qop = match qop {
-            Some(d) => d,
+            Some(d) => Some(d),
             None => {
                 // for RFC 2069.
                 return Ok(Self {
@@ -822,11 +1097,6 @@ impl std::str::FromStr for DigestHeaderParameters {
             }
         };
 
-        // TODO: use enum.
-        if qop != "auth" && qop != "auth-int" {
-            anyhow::bail!("unexpected qop: {}", qop);
-        }
-
         let cnonce = cnonce.context("missing cnonce")?;
         let nc = nc.context("missing nc")?;
 
@@ -839,7 +1109,7 @@ impl std::str::FromStr for DigestHeaderParameters {
             uri: uri.to_owned(),
             cnonce: Some(cnonce.to_owned()),
             nc: Some(nc.to_owned()),
-            qop: Some(qop.to_owned()),
+            qop,
             response: response.to_owned(),
             algorithm: algorithm.map(str::to_owned),
         })
@@ -891,7 +1161,6 @@ mod tests {
     #[test]
     fn test_digest_md5_auth_int() {
         let mut digest = md5::Md5::new();
-        let md5sum_empty = HexFormat(digest.finalize_reset().as_slice()).to_string();
 
         assert_eq!(
             digest_auth_int(
@@ -904,7 +1173,7 @@ mod tests {
                 "/md5_auth_int",
                 "Njk1YjJiNzcyOTc3NGJkNjAwNGJjOWRkNWE4Y2Y0OWM=",
                 "00000001",
-                &md5sum_empty,
+                b"",
             ),
             "b75e3146715cd78f4ac9a43699b456db"
         );
