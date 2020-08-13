@@ -261,7 +261,7 @@ impl Algorithm {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum Qop {
     Auth,
     AuthInt,
@@ -1216,7 +1216,7 @@ mod tests {
         assert_eq!(container.uri, "/path/to/secret");
         assert_eq!(container.cnonce, Some("CNONCE123".to_owned()));
         assert_eq!(container.nc, Some("00000001".to_owned()));
-        assert_eq!(container.qop, Some("auth".to_owned()));
+        assert_eq!(container.qop, Some(Qop::Auth));
         assert_eq!(container.response, "RES123");
         assert_eq!(container.algorithm, Some("MD5".to_owned()));
     }
@@ -1321,7 +1321,7 @@ mod tests {
         assert_eq!(container.uri, "/path/to/secret");
         assert_eq!(container.cnonce, Some("CNONCE123".to_owned()));
         assert_eq!(container.nc, Some("00000001".to_owned()));
-        assert_eq!(container.qop, Some("auth-int".to_owned()));
+        assert_eq!(container.qop, Some(Qop::AuthInt));
         assert_eq!(container.response, "RES123");
         assert_eq!(container.algorithm, Some("MD5".to_owned()));
     }
@@ -1347,7 +1347,7 @@ mod tests {
         assert_eq!(container.uri, "");
         assert_eq!(container.cnonce, Some("".to_owned()));
         assert_eq!(container.nc, Some("".to_owned()));
-        assert_eq!(container.qop, Some("auth".to_owned()));
+        assert_eq!(container.qop, Some(Qop::Auth));
         assert_eq!(container.response, "");
         assert_eq!(container.algorithm, Some("".to_owned()));
     }
