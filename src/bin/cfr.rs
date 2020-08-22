@@ -1,26 +1,29 @@
 use std::env::Args;
-
-use log::info;
+use std::path::Path;
 
 fn main() {
-    dotenv::dotenv().ok();
-    env_logger::init();
-
-    info!("Hello");
-
     let mut command = std::process::Command::new("java");
+
+    let jar_path = ["/usr/local/share/cfr/cfr.jar", "/usr/share/cfr/cfr.jar"]
+        .iter()
+        .find(|data| {
+            let p = Path::new(data);
+            p.exists()
+        })
+        .unwrap_or_else(|| {
+            eprintln!("cfr not found");
+            std::process::exit(1);
+        });
 
     command
         .arg("-jar")
-        .arg(std::env::var("HOME").unwrap() + "/bin/cfr_0_115.jar")
+        .arg(jar_path)
         .args(get_args())
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .output()
         .unwrap();
-
-    info!("Bye");
 }
 
 fn get_args() -> Args {
