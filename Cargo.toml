@@ -35,7 +35,7 @@ toml = "=0.5.6"
 trust-dns-resolver = "=0.19.5"
 
 [dependencies.reqwest]
-version = "=0.10.7"
+version = "=0.10.8"
 features = ["blocking", "json"]
 
 [dependencies.tinytable-rs]
