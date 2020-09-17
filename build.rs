@@ -6,7 +6,10 @@ use std::path::Path;
 use anyhow::anyhow;
 
 fn main() -> anyhow::Result<()> {
-    checkghossversion()
+    checkghossversion()?;
+    pwnedpassword()?;
+
+    Ok(())
 }
 
 fn checkghossversion() -> anyhow::Result<()> {
@@ -41,6 +44,16 @@ fn checkghossversion() -> anyhow::Result<()> {
 
     for method_str in &methods {
         checkghossversion_file.write_all(method_str)?;
+    }
+    Ok(())
+}
+
+fn pwnedpassword() -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        for entry in vcpkg::find_package("sqlite3")?.link_paths {
+            println!("cargo:rustc-link-search=native={}", entry.to_str().unwrap());
+        }
     }
     Ok(())
 }
