@@ -51,7 +51,7 @@ version = "=0.8.1"
 features = ["v4"]
 
 [dependencies.serde]
-version = "=1.0.114"
+version = "=1.0.116"
 features = ["derive"]
 
 [dependencies.warp]
