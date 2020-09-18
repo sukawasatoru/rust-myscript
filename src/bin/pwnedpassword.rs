@@ -68,7 +68,6 @@ const TEXT_NAME: &str = "pwned-passwords-sha1-ordered-by-hash-v6.txt";
 const DB_NAME: &str = "pwned-password-sha1.sqlite";
 
 // https://haveibeenpwned.com/passwords
-// https://haveibeenpwned.com/API/v3
 fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
@@ -78,11 +77,6 @@ fn main() -> anyhow::Result<()> {
     match opt.cmd {
         Command::Check { cmd } => {
             info!("Hello");
-
-            match cmd {
-                CheckCommand::Db => todo!(),
-                _ => (),
-            }
 
             #[cfg(target_os = "windows")]
             {
@@ -104,7 +98,11 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let pwned = check_data_source_net(plain_password)?.is_some();
+                let pwned = match cmd {
+                    CheckCommand::Db => check_data_source_db(plain_password)?.is_some(),
+                    CheckCommand::Net => check_data_source_net(plain_password)?.is_some(),
+                };
+
                 if pwned {
                     if !first_pwned {
                         first_pwned = true;
@@ -165,7 +163,36 @@ fn create_db() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn check_data_source_db(plain_password: &str) -> anyhow::Result<Option<()>> {
+    let password_hash = sha1::Sha1::digest(plain_password.as_bytes()).iter().fold(
+        String::new(),
+        |mut acc, data| {
+            acc.push_str(&format!("{:02X?}", data));
+            acc
+        },
+    );
+
+    let conn = rusqlite::Connection::open(DB_NAME)?;
+    let password_table = PasswordTable::new();
+    let ret = conn
+        .prepare_cached(&format!(
+            "SELECT count(*) FROM {} WHERE hash = ?",
+            password_table.name()
+        ))?
+        .query_map(params![password_hash], |row| Ok(0 < row.get::<_, i32>(0)?))?
+        .into_iter()
+        .next()
+        .context("SELECT count(*)")??;
+
+    if ret {
+        Ok(Some(()))
+    } else {
+        Ok(None)
+    }
+}
+
 fn check_data_source_net(plain_password: &str) -> anyhow::Result<Option<()>> {
+    // https://haveibeenpwned.com/API/v3
     let password_hash = sha1::Sha1::digest(plain_password.as_bytes()).iter().fold(
         String::new(),
         |mut acc, data| {
