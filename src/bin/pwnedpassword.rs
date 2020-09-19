@@ -36,6 +36,18 @@ enum CheckCommand {
     Db,
 }
 
+struct HexFormat<'a>(&'a [u8]);
+
+impl<'a> std::fmt::Display for HexFormat<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for entry in self.0 {
+            write!(f, "{:02X?}", entry)?;
+        }
+
+        Ok(())
+    }
+}
+
 struct PasswordTable {
     col_hash: Rc<Column>,
     col_count: Rc<Column>,
@@ -74,10 +86,10 @@ fn main() -> anyhow::Result<()> {
 
     let opt: Opt = Opt::from_args();
 
+    info!("Hello");
+
     match opt.cmd {
         Command::Check { cmd } => {
-            info!("Hello");
-
             #[cfg(target_os = "windows")]
             {
                 eprintln!("Please input password and Ctrl+Z");
@@ -112,11 +124,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Command::Create => {
-            info!("Hello");
-
-            create_db()?
-        }
+        Command::Create => create_db()?,
     }
 
     info!("Bye");
@@ -164,14 +172,8 @@ fn create_db() -> anyhow::Result<()> {
 }
 
 fn check_data_source_db(plain_password: &str) -> anyhow::Result<Option<()>> {
-    let password_hash = sha1::Sha1::digest(plain_password.as_bytes()).iter().fold(
-        String::new(),
-        |mut acc, data| {
-            acc.push_str(&format!("{:02X?}", data));
-            acc
-        },
-    );
-
+    let password_hash =
+        HexFormat(sha1::Sha1::digest(plain_password.as_bytes()).as_slice()).to_string();
     let conn = rusqlite::Connection::open(DB_NAME)?;
     let password_table = PasswordTable::new();
     let ret = conn
@@ -193,13 +195,8 @@ fn check_data_source_db(plain_password: &str) -> anyhow::Result<Option<()>> {
 
 fn check_data_source_net(plain_password: &str) -> anyhow::Result<Option<()>> {
     // https://haveibeenpwned.com/API/v3
-    let password_hash = sha1::Sha1::digest(plain_password.as_bytes()).iter().fold(
-        String::new(),
-        |mut acc, data| {
-            acc.push_str(&format!("{:02X?}", data));
-            acc
-        },
-    );
+    let password_hash =
+        HexFormat(sha1::Sha1::digest(plain_password.as_bytes()).as_slice()).to_string();
 
     let response = reqwest::blocking::get(&format!(
         "https://api.pwnedpasswords.com/range/{}",
