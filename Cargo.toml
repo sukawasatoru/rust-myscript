@@ -7,9 +7,6 @@ edition = "2018"
 [build-dependencies]
 anyhow = "1"
 
-[target.'cfg(windows)'.build-dependencies]
-vcpkg = "=0.2.10"
-
 [dependencies]
 anyhow = "=1.0.32"
 blake2 = "=0.9.0"
@@ -29,7 +26,6 @@ sha2 = "=0.9.1"
 structopt = "=0.3.18"
 strum = "=0.19.2"
 strum_macros = "=0.19.2"
-rusqlite = "=0.24.0"
 thiserror = "=1.0.20"
 toml = "=0.5.6"
 trust-dns-resolver = "=0.19.5"
@@ -37,6 +33,10 @@ trust-dns-resolver = "=0.19.5"
 [dependencies.reqwest]
 version = "=0.10.8"
 features = ["blocking", "json"]
+
+[dependencies.rusqlite]
+version = "=0.24.0"
+features = ["bundled-windows"]
 
 [dependencies.tinytable-rs]
 git = "https://github.com/sukawasatoru/tinytable-rs.git"

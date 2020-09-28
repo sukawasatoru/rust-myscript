@@ -47,12 +47,6 @@ fn checkghossversion() -> anyhow::Result<()> {
 }
 
 fn pwnedpassword() -> anyhow::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        for entry in vcpkg::find_package("sqlite3")?.link_paths {
-            println!("cargo:rustc-link-search=native={}", entry.to_str().unwrap());
-        }
-    }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let status = std::process::Command::new("pkg-config")
