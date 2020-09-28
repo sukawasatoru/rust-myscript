@@ -3,8 +3,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use anyhow::anyhow;
-
 fn main() -> anyhow::Result<()> {
     checkghossversion()?;
     pwnedpassword()?;
@@ -22,7 +20,7 @@ fn checkghossversion() -> anyhow::Result<()> {
         let file_path = asset_path.join(format!("{}.graphql", file_name));
         let mut file = match File::open(&file_path) {
             Ok(ok) => ok,
-            Err(e) => Err(anyhow!("Failed to open file: {:?}, {:?}", file_path, e))?,
+            Err(e) => anyhow::bail!("Failed to open file: {:?}, {:?}", file_path, e),
         };
         file_string.clear();
         file.read_to_string(&mut file_string)?;
@@ -53,6 +51,26 @@ fn pwnedpassword() -> anyhow::Result<()> {
     {
         for entry in vcpkg::find_package("sqlite3")?.link_paths {
             println!("cargo:rustc-link-search=native={}", entry.to_str().unwrap());
+        }
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let status = std::process::Command::new("pkg-config")
+            .args(&["--exists", "sqlite3"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?
+            .wait_with_output()?
+            .status;
+
+        if !status.success() {
+            let command_help = if cfg!(target_os = "linux") {
+                "sudo apt install libsqlite3-dev"
+            } else {
+                "sudo port install sqlite3"
+            };
+
+            anyhow::bail!("Need to install the sqlite3 via \"{}\"", command_help)
         }
     }
     Ok(())
