@@ -310,8 +310,8 @@ async fn main() -> anyhow::Result<()> {
 
     debug!("opt: {:?}", opt);
 
-    let project_dirs =
-        directories::ProjectDirs::from("jp", "tinyport", "checkghossversion").ok_or_err()?;
+    let project_dirs = directories::ProjectDirs::from("jp", "tinyport", "checkghossversion")
+        .context("ProjectDirs")?;
     let config_path = project_dirs.config_dir().join("config.toml");
     let mut toml_loader = TomlLoader::new();
     let config = prepare_config(&mut toml_loader, &config_path)?;
@@ -478,7 +478,7 @@ fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config
     }
 
     info!("create new config file");
-    let dir = path.parent().ok_or_err()? as &Path;
+    let dir = path.parent().context("new config file")?;
     if !dir.exists() {
         fs::create_dir_all(dir)?;
     }

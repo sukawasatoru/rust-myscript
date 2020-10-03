@@ -97,8 +97,8 @@ fn main() -> anyhow::Result<()> {
 
 fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<()> {
     debug!("input {:?}", history_path);
-    let project_dirs: directories::ProjectDirs =
-        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
+    let project_dirs =
+        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
 
     let mut statistics = if statistics_path.exists() {
@@ -155,8 +155,8 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<(
 }
 
 fn show(num: Option<i32>) -> anyhow::Result<()> {
-    let project_dirs: directories::ProjectDirs =
-        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").ok_or_err()?;
+    let project_dirs =
+        directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
 
     let mut statistics: Statistics = load_statistics(&statistics_path)?;
@@ -188,7 +188,7 @@ fn load_statistics(path: &Path) -> anyhow::Result<Statistics> {
 
 fn store_statistics(path: &Path, statistics: &Statistics) -> anyhow::Result<()> {
     use std::fs;
-    let data_dir: &Path = path.parent().ok_or_err()?;
+    let data_dir = path.parent().context("parent")?;
     if !data_dir.exists() {
         fs::create_dir_all(data_dir)?;
     }

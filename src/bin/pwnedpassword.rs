@@ -1,7 +1,7 @@
-use anyhow::Context as AnyhowContext;
 use digest::Digest;
 use log::info;
 use rusqlite::{params, NO_PARAMS};
+use rust_myscript::myscript::prelude::*;
 use std::io::prelude::*;
 use std::rc::Rc;
 use structopt::StructOpt;

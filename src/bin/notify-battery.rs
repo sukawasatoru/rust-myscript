@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .stdout(std::process::Stdio::piped())
         .spawn()?;
 
-    let mut reader = std::io::BufReader::new(process.stdout.ok_or_err()?);
+    let mut reader = std::io::BufReader::new(process.stdout.context("stdout")?);
     let mut s = String::new();
     loop {
         debug!("loop");

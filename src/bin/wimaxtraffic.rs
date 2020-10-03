@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
     let project_dir =
-        directories::ProjectDirs::from("jp", "tinyport", "wimaxtraffic").ok_or_err()?;
+        directories::ProjectDirs::from("jp", "tinyport", "wimaxtraffic").context("projectDirs")?;
     let config_path = project_dir.config_dir().join("config.toml");
     let mut loader = TomlLoader::new();
     let config = prepare_config(&mut loader, &config_path)?;
@@ -87,7 +87,7 @@ fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config
     }
 
     info!("create new config file");
-    let dir = path.parent().ok_or_err()? as &Path;
+    let dir = path.parent().context("new config file")?;
     if !dir.exists() {
         fs::create_dir_all(dir)?;
     }

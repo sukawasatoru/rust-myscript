@@ -1,4 +1,3 @@
-use anyhow::Context as AnyhowContext;
 use log::{debug, info, trace, warn};
 use rust_myscript::myscript::prelude::*;
 use std::convert::TryInto;
@@ -224,9 +223,9 @@ async fn retrieve_product_name(
     let product_name = context
         .regex_product_name
         .captures(result_string.trim())
-        .ok_or_err()?
+        .context("captures")?
         .get(1)
-        .ok_or_err()?
+        .context("captures.get(1)")?
         .as_str();
 
     Ok(product_name.into())

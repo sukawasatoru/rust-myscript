@@ -1,16 +1,4 @@
-#[derive(thiserror::Error, Debug)]
-#[error("Option error")]
-pub struct OptionError;
-
-pub trait OkOrErr<T> {
-    fn ok_or_err(self) -> anyhow::Result<T>;
-}
-
-impl<T> OkOrErr<T> for Option<T> {
-    fn ok_or_err(self) -> anyhow::Result<T> {
-        self.ok_or_else(|| OptionError.into())
-    }
-}
+pub use anyhow::Context as _;
 
 pub struct TomlLoader {
     buf: String,

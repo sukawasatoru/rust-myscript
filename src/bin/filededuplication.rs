@@ -138,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
                 };
 
                 let create_dir_ret =
-                    tokio::fs::create_dir_all(&backup_path.parent().ok_or_err()?).await;
+                    tokio::fs::create_dir_all(&backup_path.parent().context("parent")?).await;
 
                 if create_dir_ret.is_err() {
                     eprintln!("failed to create dir: {:?}", create_dir_ret);
@@ -162,8 +162,8 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(target_os = "macos")]
             unsafe {
                 let ret_clonefile = clonefile(
-                    CString::new(source.to_str().ok_or_err()?)?.as_ptr(),
-                    CString::new(file_path.to_str().ok_or_err()?)?.as_ptr(),
+                    CString::new(source.to_str().context("source")?)?.as_ptr(),
+                    CString::new(file_path.to_str().context("file_path")?)?.as_ptr(),
                     0,
                 );
                 if ret_clonefile != 0 {
