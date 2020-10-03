@@ -2,6 +2,7 @@ use blake2::{Blake2b, Digest};
 use futures::prelude::*;
 use log::{debug, info};
 use rust_myscript::prelude::*;
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -86,9 +87,9 @@ async fn main() -> anyhow::Result<()> {
 
     debug!("target_dir: {:?}", opt.target_dir);
 
-    let mut files = vec![];
+    let mut files = HashSet::new();
     for target in &opt.target_dir {
-        files.append(&mut walk_dir(target).await?);
+        files.extend(walk_dir(target).await?);
     }
 
     let mut digest = Blake2b::new();
@@ -202,10 +203,12 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Result<Vec<PathBuf>>>>> {
+fn walk_dir(
+    target_dir: &Path,
+) -> Pin<Box<dyn '_ + Future<Output = anyhow::Result<HashSet<PathBuf>>>>> {
     Box::pin(async move {
         let mut read_dir = tokio::fs::read_dir(target_dir).await?;
-        let mut files = vec![];
+        let mut files = HashSet::new();
         loop {
             let dir_entry = match read_dir.next_entry().await {
                 Ok(None) => break,
@@ -224,15 +227,15 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Resul
                 debug!("ignore symlink: {:?}", dir_entry_path);
             } else if symlink_file_type.is_dir() {
                 debug!("dir: {:?}", dir_entry_path);
-                let mut ret = walk_dir(&dir_entry_path).await?;
-                files.append(&mut ret);
+                let ret = walk_dir(&dir_entry_path).await?;
+                files.extend(ret);
             } else if symlink_file_type.is_file() {
                 debug!("file: {:?}", dir_entry_path);
                 if symlink_meta.permissions().readonly() {
                     debug!("readonly: {:?}", dir_entry_path);
                     continue;
                 }
-                files.push(dir_entry_path);
+                files.insert(dir_entry_path);
             } else {
                 unreachable!();
             }
