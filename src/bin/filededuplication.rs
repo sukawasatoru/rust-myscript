@@ -7,6 +7,7 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::exit;
+use std::sync::Arc;
 use structopt::clap::ArgGroup;
 use structopt::StructOpt;
 use tokio::prelude::*;
@@ -92,33 +93,51 @@ async fn main() -> anyhow::Result<()> {
         files.extend(walk_dir(target).await?);
     }
 
-    let mut digest = Blake2b::new();
+    // launchctl limit maxfiles
+    let semapho = Arc::new(tokio::sync::Semaphore::new(200));
+    let mut futs = futures::stream::FuturesUnordered::new();
+
+    for entry in files {
+        let semapho = semapho.clone();
+        let fut = async move {
+            let _lock = semapho.acquire().await;
+
+            info!("calculate begin. path: {:?}", entry);
+            let mut digest = Blake2b::new();
+            let source_file = tokio::fs::File::open(&entry).await.unwrap();
+            let mut reader = tokio::io::BufReader::new(source_file);
+
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = match reader.read(&mut buf).await {
+                    Ok(n) if n == 0 => break,
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("{:?}", e);
+                        return None;
+                    }
+                };
+                digest.update(&buf[0..n]);
+            }
+
+            let hash = digest.finalize_reset().to_vec();
+            info!(
+                "calculate end. path: {:?}, hash: {}",
+                entry,
+                HexFormat(&hash)
+            );
+            Some((entry, hash))
+        };
+        futs.push(fut);
+    }
+
     let mut file_hash_map = std::collections::HashMap::<Vec<u8>, Vec<PathBuf>>::new();
+    while let Some(data) = futs.next().await {
+        let (entry, hash) = match data {
+            Some(d) => d,
+            None => continue,
+        };
 
-    'file_entry: for entry in files {
-        info!("calculate begin. path: {:?}", entry);
-        let source_file = tokio::fs::File::open(&entry).await?;
-        let mut reader = tokio::io::BufReader::new(source_file);
-
-        let mut buf = [0u8; 4096];
-        loop {
-            let n = match reader.read(&mut buf).await {
-                Ok(n) if n == 0 => break,
-                Ok(n) => n,
-                Err(e) => {
-                    eprintln!("{:?}", e);
-                    continue 'file_entry;
-                }
-            };
-            digest.update(&buf[0..n]);
-        }
-
-        let hash = digest.finalize_reset().to_vec();
-        info!(
-            "calculate end. path: {:?}, hash: {}",
-            entry,
-            HexFormat(&hash)
-        );
         match file_hash_map.get_mut(&hash) {
             Some(data) => data.push(entry),
             None => {
