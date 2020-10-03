@@ -37,6 +37,10 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
 #[derive(StructOpt)]
 #[structopt(group = ArgGroup::with_name("backup").required(true))]
 struct Opt {
+    /// Do not write anything, just show what would be done
+    #[structopt(short = "n", long)]
+    dry_run: bool,
+
     /// Target directory to deduplicate
     #[structopt(short, long, parse(from_os_str))]
     target_dir: Vec<PathBuf>,
@@ -137,39 +141,59 @@ async fn main() -> anyhow::Result<()> {
                     backup_dir_root.join(file_path)
                 };
 
-                let create_dir_ret =
-                    tokio::fs::create_dir_all(&backup_path.parent().context("parent")?).await;
+                let backup_path_parent = backup_path.parent().context("parent")?;
 
-                if create_dir_ret.is_err() {
-                    eprintln!("failed to create dir: {:?}", create_dir_ret);
-                    continue;
-                }
+                if opt.dry_run {
+                    eprintln!("Would create dir to {:?}", backup_path_parent);
+                    eprintln!(
+                        "Would move to {:?} from {:?}",
+                        backup_path_parent, file_path
+                    );
+                } else {
+                    debug!("create {:?}", backup_path_parent);
+                    let create_dir_ret = tokio::fs::create_dir_all(backup_path_parent).await;
 
-                let move_ret = tokio::fs::rename(&file_path, &backup_path).await;
-                if move_ret.is_err() {
-                    eprintln!("failed to move file: {:?}", move_ret);
-                    continue;
+                    if create_dir_ret.is_err() {
+                        eprintln!("failed to create dir: {:?}", create_dir_ret);
+                        continue;
+                    }
+
+                    debug!("rename to: {:?}, from: {:?}", backup_path, file_path);
+                    let move_ret = tokio::fs::rename(&file_path, &backup_path).await;
+                    if move_ret.is_err() {
+                        eprintln!("failed to move file: {:?}", move_ret);
+                        continue;
+                    }
                 }
             } else {
-                let ret_rm = tokio::fs::remove_file(file_path).await;
-                if ret_rm.is_err() {
-                    eprintln!("failed to remove file: {:?}", ret_rm);
+                if opt.dry_run {
+                    eprintln!("Would remove {:?}", file_path);
+                } else {
+                    debug!("remove: {:?}", file_path);
+                    let ret_rm = tokio::fs::remove_file(file_path).await;
+                    if ret_rm.is_err() {
+                        eprintln!("failed to remove file: {:?}", ret_rm);
+                    }
                 }
             }
 
-            println!("clone {:?} to {:?}", source, file_path);
+            if opt.dry_run {
+                eprintln!("Would clone {:?} to {:?}", source, file_path);
+            } else {
+                println!("clone {:?} to {:?}", source, file_path);
 
-            #[cfg(target_os = "macos")]
-            unsafe {
-                let ret_clonefile = clonefile(
-                    CString::new(source.to_str().context("source")?)?.as_ptr(),
-                    CString::new(file_path.to_str().context("file_path")?)?.as_ptr(),
-                    0,
-                );
-                if ret_clonefile != 0 {
-                    eprintln!("failed to execute the clonefile command: {}", errno);
-                }
-            };
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    let ret_clonefile = clonefile(
+                        CString::new(source.to_str().context("source")?)?.as_ptr(),
+                        CString::new(file_path.to_str().context("file_path")?)?.as_ptr(),
+                        0,
+                    );
+                    if ret_clonefile != 0 {
+                        eprintln!("failed to execute the clonefile command: {}", errno);
+                    }
+                };
+            }
         }
     }
 
