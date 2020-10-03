@@ -1,16 +1,14 @@
+use blake2::{Blake2b, Digest};
+use futures::prelude::*;
+use log::{debug, info};
+use rust_myscript::myscript::prelude::*;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::exit;
-
-use blake2::{Blake2b, Digest};
-use futures::prelude::*;
-use log::{debug, info};
 use structopt::clap::ArgGroup;
 use structopt::StructOpt;
 use tokio::prelude::*;
-
-use rust_myscript::myscript::prelude::*;
 
 struct HexFormat<'a>(&'a [u8]);
 
@@ -65,9 +63,9 @@ extern "C" {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if check_os().is_err() {
+    if cfg!(not(target_os = "macos")) {
         eprintln!("need to run on macOS");
-        exit(0);
+        exit(1);
     }
 
     dotenv::dotenv().ok();
@@ -84,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     debug!("target_dir: {:?}", opt.target_dir);
 
-    let mut files = Vec::<PathBuf>::new();
+    let mut files = vec![];
     for target in &opt.target_dir {
         files.append(&mut walk_dir(target).await?);
     }
@@ -94,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
 
     'file_entry: for entry in files {
         info!("calculate begin. path: {:?}", entry);
-        let source_file: tokio::fs::File = tokio::fs::File::open(&entry).await?;
+        let source_file = tokio::fs::File::open(&entry).await?;
         let mut reader = tokio::io::BufReader::new(source_file);
 
         let mut buf = [0u8; 4096];
@@ -182,10 +180,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Result<Vec<PathBuf>>>>> {
     Box::pin(async move {
-        let mut read_dir: tokio::fs::ReadDir = tokio::fs::read_dir(target_dir).await?;
-        let mut files = Vec::<PathBuf>::new();
+        let mut read_dir = tokio::fs::read_dir(target_dir).await?;
+        let mut files = vec![];
         loop {
-            let dir_entry: tokio::fs::DirEntry = match read_dir.next_entry().await {
+            let dir_entry = match read_dir.next_entry().await {
                 Ok(None) => break,
                 Ok(Some(data)) => data,
                 Err(e) => {
@@ -194,9 +192,8 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Resul
                 }
             };
 
-            let dir_entry_path: PathBuf = dir_entry.path();
-            let symlink_meta: std::fs::Metadata =
-                tokio::fs::symlink_metadata(&dir_entry_path).await?;
+            let dir_entry_path = dir_entry.path();
+            let symlink_meta = tokio::fs::symlink_metadata(&dir_entry_path).await?;
             let symlink_file_type = symlink_meta.file_type();
 
             if symlink_file_type.is_symlink() {
@@ -219,12 +216,4 @@ fn walk_dir(target_dir: &Path) -> Pin<Box<dyn '_ + Future<Output = anyhow::Resul
 
         Ok(files)
     })
-}
-
-fn check_os() -> anyhow::Result<()> {
-    if cfg!(target_os = "macos") {
-        Ok(())
-    } else {
-        anyhow::bail!("")
-    }
 }
