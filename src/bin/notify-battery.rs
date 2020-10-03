@@ -1,6 +1,6 @@
 use log::{debug, info};
 use regex::Regex;
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use std::io::BufRead;
 use structopt::StructOpt;
 

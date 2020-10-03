@@ -1,1 +1,1 @@
-pub mod myscript;
+pub mod prelude;

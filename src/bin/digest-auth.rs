@@ -1,6 +1,6 @@
 use digest::Digest;
 use log::{debug, info, warn};
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use std::str::FromStr;
 use structopt::StructOpt;
 use warp::http::header;

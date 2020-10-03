@@ -1,5 +1,5 @@
 use log::{debug, info};
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,

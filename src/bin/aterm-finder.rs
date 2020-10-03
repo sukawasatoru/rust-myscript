@@ -1,5 +1,5 @@
 use log::{debug, info, trace, warn};
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::sync::Arc;

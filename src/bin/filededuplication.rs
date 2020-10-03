@@ -1,7 +1,7 @@
 use blake2::{Blake2b, Digest};
 use futures::prelude::*;
 use log::{debug, info};
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;

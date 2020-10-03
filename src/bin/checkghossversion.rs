@@ -1,6 +1,6 @@
 use log::{debug, info, trace};
 use regex::Regex;
-use rust_myscript::myscript::prelude::*;
+use rust_myscript::prelude::*;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
