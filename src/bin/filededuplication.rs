@@ -43,6 +43,10 @@ struct Opt {
     #[structopt(short = "n", long)]
     dry_run: bool,
 
+    /// Specifies the number of jobs to run simultaneously
+    #[structopt(short, long)]
+    jobs: Option<usize>,
+
     /// Target directory to deduplicate
     #[structopt(short, long, parse(from_os_str))]
     target_dir: Vec<PathBuf>,
@@ -94,7 +98,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // launchctl limit maxfiles
-    let semapho = Arc::new(tokio::sync::Semaphore::new(200));
+    let semapho = Arc::new(tokio::sync::Semaphore::new(
+        opt.jobs.unwrap_or_else(|| num_cpus::get()).min(200),
+    ));
     let mut futs = futures::stream::FuturesUnordered::new();
 
     for entry in files {
