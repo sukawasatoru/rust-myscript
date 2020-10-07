@@ -4,8 +4,14 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
-    checkghossversion()?;
-    pwnedpassword()?;
+    checkghossversion().map_err(|e| {
+        eprintln!("failed to execute the checkghossversion: {:?}", e);
+        e
+    })?;
+    pwnedpassword().map_err(|e| {
+        eprintln!("failed to execute the pwnedpassword: {:?}", e);
+        e
+    })?;
 
     Ok(())
 }
@@ -49,12 +55,22 @@ fn checkghossversion() -> anyhow::Result<()> {
 fn pwnedpassword() -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
+        if !std::process::Command::new("which")
+            .args(&["pkg-config"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()?
+            .status
+            .success()
+        {
+            anyhow::bail!("Need to install the pkg-config")
+        }
+
         let status = std::process::Command::new("pkg-config")
             .args(&["--exists", "sqlite3"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .spawn()?
-            .wait_with_output()?
+            .output()?
             .status;
 
         if !status.success() {
