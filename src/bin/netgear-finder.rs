@@ -3,7 +3,7 @@ use std::fmt::Write;
 use std::io::prelude::*;
 use std::net::{SocketAddr, SocketAddrV4};
 use structopt::StructOpt;
-use strum::IntoEnumIterator;
+use strum::{EnumIter, IntoEnumIterator};
 
 #[derive(StructOpt)]
 struct Opt {
@@ -539,7 +539,7 @@ fn create_message_udp_v2(mac_address: &MacAddress) -> Vec<u8> {
     ]
 }
 
-#[derive(Debug, strum_macros::EnumIter)]
+#[derive(Debug, EnumIter)]
 enum DatagramTag {
     Model,
     Name,
