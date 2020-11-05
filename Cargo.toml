@@ -39,7 +39,7 @@ features = ["bundled-windows"]
 
 [dependencies.tinytable-rs]
 git = "https://github.com/sukawasatoru/tinytable-rs.git"
-tag = "v0.1.1"
+tag = "v0.3.0"
 
 [dependencies.tokio]
 version = "=0.2.22"
