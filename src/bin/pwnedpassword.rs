@@ -3,7 +3,7 @@ use log::info;
 use rusqlite::{params, NO_PARAMS};
 use rust_myscript::prelude::*;
 use std::io::prelude::*;
-use std::rc::Rc;
+use std::sync::Arc;
 use structopt::StructOpt;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
@@ -49,9 +49,9 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
 }
 
 struct PasswordTable {
-    col_hash: Rc<Column>,
-    col_count: Rc<Column>,
-    column: Vec<Rc<Column>>,
+    col_hash: Arc<Column>,
+    col_count: Arc<Column>,
+    column: Vec<Arc<Column>>,
 }
 
 impl PasswordTable {
@@ -71,7 +71,7 @@ impl Table for PasswordTable {
         "password"
     }
 
-    fn columns(&self) -> &[Rc<Column>] {
+    fn columns(&self) -> &[Arc<Column>] {
         &self.column
     }
 }
