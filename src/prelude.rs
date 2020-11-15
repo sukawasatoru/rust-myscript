@@ -1,4 +1,5 @@
 pub use anyhow::Context as _;
+pub use anyhow::Result as Fallible;
 
 pub struct TomlLoader {
     buf: String,
