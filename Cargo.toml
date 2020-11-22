@@ -54,7 +54,7 @@ version = "=1.0.117"
 features = ["derive"]
 
 [dependencies.strum]
-version = "=0.19.5"
+version = "=0.20.0"
 features = ["derive"]
 
 [dependencies.warp]
