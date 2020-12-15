@@ -40,7 +40,7 @@ jobs:
           grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
           grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
           exit $CODE
-      - name: Check
+      - name: Tests
         run: |
           cargo test 2> >(tee stderr.log >&2)
           CODE=$?
