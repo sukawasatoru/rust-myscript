@@ -17,3 +17,45 @@ jobs:
       run: cargo build --release
     - name: Tests
       run: cargo test
+  macOS-M1:
+    runs-on: [self-hosted, macOS, m1, rust]
+    env:
+      RUSTC_WRAPPER: sccache
+      RUSTUP_TOOLCHAIN: 1.48.0-x86_64
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: |
+          cargo build --release 2> >(tee stderr.log >&2)
+          CODE=$?
+          gsed -i -e 's/\x1b\[[0-9;]*m//g' stderr.log
+          grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
+          grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
+          exit $CODE
+      - name: Check
+        run: |
+          cargo clippy 2> >(tee stderr.log >&2)
+          CODE=$?
+          gsed -i -e 's/\x1b\[[0-9;]*m//g' stderr.log
+          grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
+          grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
+          exit $CODE
+      - name: Check
+        run: |
+          cargo test 2> >(tee stderr.log >&2)
+          CODE=$?
+          gsed -i -e 's/\x1b\[[0-9;]*m//g' stderr.log
+          grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
+          grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
+          exit $CODE
+      - uses: actions/upload-artifact@v2
+        with:
+          path: |
+            target/release/*
+            !target/release/build
+            !target/release/deps
+            !target/release/examples
+            !target/release/incremental
+            !target/release/*.d
+            !target/release/*.rlib
+          if-no-files-found: error
