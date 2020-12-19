@@ -17,3 +17,10 @@ jobs:
       run: cargo build --release
     - name: Tests
       run: cargo test
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Rust
+        run: rustup component add rustfmt
+      - run: cargo -v fmt -- --check
