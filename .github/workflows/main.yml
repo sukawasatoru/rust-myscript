@@ -23,10 +23,4 @@ jobs:
       - uses: actions/checkout@v2
       - name: Setup Rust
         run: rustup component add rustfmt
-      - run: |
-          cargo -v fmt -- --check 2> >(tee stderr.log >&2)
-          CODE=$?
-          sed -ie 's/\x1b\[[0-9;]*m//g' stderr.log
-          grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
-          grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
-          exit $CODE
+      - run: cargo -v fmt -- --check
