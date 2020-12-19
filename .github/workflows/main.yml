@@ -17,3 +17,14 @@ jobs:
       run: cargo build --release
     - name: Tests
       run: cargo test
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          cargo -v fmt -- --check 2> >(tee stderr.log >&2)
+          CODE=$?
+          gsed -i -e 's/\x1b\[[0-9;]*m//g' stderr.log
+          grep -qe ^warning stderr.log && grep -e ^warning stderr.log | xargs -ILINE echo "::warning::LINE" || true
+          grep -qe ^error stderr.log && grep -e ^error stderr.log | xargs -ILINE echo "::error::LINE" || true
+          exit $CODE
