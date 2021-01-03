@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
 
     // launchctl limit maxfiles
     let semapho = Arc::new(tokio::sync::Semaphore::new(
-        opt.jobs.unwrap_or_else(|| num_cpus::get()).min(200),
+        opt.jobs.unwrap_or_else(num_cpus::get).min(200),
     ));
     let mut futs = futures::stream::FuturesUnordered::new();
 
@@ -192,6 +192,8 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             } else {
+                // TODO: use repository.
+                #[allow(clippy::collapsible_if)]
                 if opt.dry_run {
                     eprintln!("Would remove {:?}", file_path);
                 } else {

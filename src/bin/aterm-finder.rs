@@ -87,10 +87,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("hello!");
 
-    if std::env::args()
-        .find(|data| data == "--debug-server")
-        .is_some()
-    {
+    if std::env::args().any(|data| data == "--debug-server") {
         return debug_server::run().await;
     }
 
@@ -180,9 +177,10 @@ async fn parallel_strategy(
                     }
                 };
 
-            if let Err(_) = tx
+            if tx
                 .send((Ipv4Addr::from(current_oct), product_name, system_mode))
                 .await
+                .is_err()
             {
                 warn!("failed to send result");
                 return;

@@ -61,6 +61,7 @@ impl From<(u8, u16, u8)> for SQLiteUserVersion {
     }
 }
 
+#[allow(clippy::unusual_byte_groupings)]
 impl From<u32> for SQLiteUserVersion {
     fn from(value: u32) -> Self {
         Self {

@@ -660,7 +660,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
             DatagramTag::Name => write!(&mut info.name, "{}", std::str::from_utf8(&payload)?)?,
             DatagramTag::MacAddress => {
                 for entry in payload.iter() {
-                    if 0 < info.mac_address.len() {
+                    if !info.mac_address.is_empty() {
                         info.mac_address.push(':');
                     }
                     write!(&mut info.mac_address, "{:02X}", entry)?;
@@ -668,7 +668,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
             }
             DatagramTag::Network => {
                 for entry in payload.iter() {
-                    if 0 < info.network.len() {
+                    if !info.network.is_empty() {
                         info.network.push('.');
                     }
                     write!(&mut info.network, "{}", entry)?;
