@@ -43,6 +43,7 @@ features = ["bundled-windows"]
 git = "https://github.com/sukawasatoru/tinytable-rs.git"
 tag = "v0.3.0"
 
+# use v0.2.x for warp v0.2.5.
 [dependencies.tokio]
 version = "=0.2.24"
 features = ["rt-threaded", "fs", "macros", "net"]
