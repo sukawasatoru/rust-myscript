@@ -49,7 +49,7 @@ version = "=0.2.24"
 features = ["rt-threaded", "fs", "macros", "net"]
 
 [dependencies.uuid]
-version = "=0.8.1"
+version = "=0.8.2"
 features = ["v4"]
 
 [dependencies.serde]
