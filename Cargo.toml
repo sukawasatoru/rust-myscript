@@ -53,7 +53,7 @@ version = "=0.8.1"
 features = ["v4"]
 
 [dependencies.serde]
-version = "=1.0.118"
+version = "=1.0.119"
 features = ["derive"]
 
 [dependencies.strum]
