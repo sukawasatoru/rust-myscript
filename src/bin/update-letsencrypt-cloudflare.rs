@@ -89,7 +89,7 @@ fn main() -> anyhow::Result<()> {
 
     for retry_second in [1, 3, 5, 7, 11, 13, 17, 19, 23, 29].iter() {
         let txt_u8 = trust_dns_resolver::Resolver::default()?
-            .txt_lookup(&select_domain)?
+            .txt_lookup(select_domain.as_str())?
             .iter()
             .next()
             .context("failed to lookup txt")?

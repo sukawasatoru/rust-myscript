@@ -150,7 +150,7 @@ async fn parallel_strategy(
         let address = current_oct.into();
         let context = context.clone();
         let client = client.clone();
-        let mut tx = tx.clone();
+        let tx = tx.clone();
         let semaphore = semaphore.clone();
         tokio::task::spawn(async move {
             let _permit = semaphore.acquire().await;

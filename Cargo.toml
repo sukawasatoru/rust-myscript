@@ -10,12 +10,12 @@ anyhow = "*"
 [dependencies]
 anyhow = "=1.0.38"
 blake2 = "=0.9.1"
-bytes = "=0.5.6"
+bytes = "=1.0.1"
 digest = "=0.9.0"
 directories = "=3.0.1"
 env_logger = "=0.8.2"
 dotenv = "=0.15.0"
-futures = "=0.3.10"
+futures = "=0.3.12"
 libc = "=0.2.82"
 log = "=0.4.13"
 md-5 = "=0.9.1"
@@ -27,12 +27,10 @@ sha2 = "=0.9.2"
 structopt = "=0.3.21"
 thiserror = "=1.0.23"
 toml = "=0.5.8"
-
-# use v0.19.x for tokio v0.2.x
-trust-dns-resolver = "=0.19.6"
+trust-dns-resolver = "=0.20.0"
 
 [dependencies.reqwest]
-version = "=0.10.10"
+version = "=0.11.0"
 features = ["blocking", "json"]
 
 [dependencies.rusqlite]
@@ -43,10 +41,9 @@ features = ["bundled-windows"]
 git = "https://github.com/sukawasatoru/tinytable-rs.git"
 tag = "v0.3.0"
 
-# use v0.2.x for warp v0.2.5.
 [dependencies.tokio]
-version = "=0.2.24"
-features = ["rt-threaded", "fs", "macros", "net"]
+version = "=1.0.2"
+features = ["fs", "macros", "net", "rt-multi-thread"]
 
 [dependencies.uuid]
 version = "=0.8.2"
@@ -61,5 +58,6 @@ version = "=0.20.0"
 features = ["derive"]
 
 [dependencies.warp]
-version = "=0.2.5"
+git = "https://github.com/seanmonstar/warp.git"
+rev = "ffefea0"
 features = ["tls"]

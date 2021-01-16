@@ -2,6 +2,7 @@ use log::{debug, info, trace, warn};
 use std::fmt::Write;
 use std::io::prelude::*;
 use std::net::{SocketAddr, SocketAddrV4};
+use std::sync::Arc;
 use structopt::StructOpt;
 use strum::{EnumIter, IntoEnumIterator};
 
@@ -51,9 +52,9 @@ async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let mac_address = opt.mac_address;
 
-    let create_server = |mut tx: tokio::sync::mpsc::Sender<(SocketAddr, DeviceInfo)>,
-                         mut socket_rx: tokio::net::udp::RecvHalf| {
-        futures::future::abortable(tokio::spawn(async move {
+    let create_server = |tx: tokio::sync::mpsc::Sender<(SocketAddr, DeviceInfo)>,
+                         socket_rx: Arc<tokio::net::UdpSocket>| {
+        tokio::spawn(async move {
             loop {
                 info!("start recv");
                 let mut ret_buf = vec![0u8; 4096];
@@ -75,25 +76,23 @@ async fn main() -> anyhow::Result<()> {
                 info!("decoded: {} {:?}", from_address.ip(), device_info);
                 tx.send((from_address, device_info)).await.ok();
             }
-        }))
+        })
     };
 
     let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(3);
 
-    let socket_v2 =
-        tokio::net::UdpSocket::bind(SocketAddrV4::new([0, 0, 0, 0].into(), 63321)).await?;
-    socket_v2.set_broadcast(true)?;
-    let (socket_rx_v2, mut socket_tx_v2) = socket_v2.split();
-    let (_server_v2, abort_handle_v2) = create_server(result_tx.clone(), socket_rx_v2);
+    let socket_tx_v2 =
+        Arc::new(tokio::net::UdpSocket::bind(SocketAddrV4::new([0, 0, 0, 0].into(), 63321)).await?);
+    socket_tx_v2.set_broadcast(true)?;
+    let handle_v2 = create_server(result_tx.clone(), socket_tx_v2.clone());
 
-    let socket_v1 =
-        tokio::net::UdpSocket::bind(SocketAddrV4::new([0, 0, 0, 0].into(), 63323)).await?;
-    socket_v1.set_broadcast(true)?;
-    let (socket_rx_v1, mut socket_tx_v1) = socket_v1.split();
-    let (_server_v1, abort_handle_v1) = create_server(result_tx, socket_rx_v1);
+    let socket_tx_v1 =
+        Arc::new(tokio::net::UdpSocket::bind(SocketAddrV4::new([0, 0, 0, 0].into(), 63323)).await?);
+    socket_tx_v1.set_broadcast(true)?;
+    let handle_v1 = create_server(result_tx, socket_tx_v1.clone());
 
-    let target_v2 = SocketAddrV4::new([255, 255, 255, 255].into(), 63322).into();
-    let target_v1 = SocketAddrV4::new([255, 255, 255, 255].into(), 63324).into();
+    let target_v2 = SocketAddrV4::new([255, 255, 255, 255].into(), 63322);
+    let target_v1 = SocketAddrV4::new([255, 255, 255, 255].into(), 63324);
     let send_datagram_ad_v2 = create_message_ad_v2(&mac_address);
     let send_datagram_udp_v2 = create_message_udp_v2(&mac_address);
     let send_datagram_ad_v1 = create_message_ad(&mac_address);
@@ -122,7 +121,7 @@ async fn main() -> anyhow::Result<()> {
 
         std::io::stdin().read_line(&mut String::new())?;
     } else {
-        tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
     for _ in 0..(opt.count - 1) {
@@ -134,16 +133,15 @@ async fn main() -> anyhow::Result<()> {
             .send_to(&send_datagram_ad_v1, &target_v2)
             .await
             .ok();
-        tokio::time::delay_for(tokio::time::Duration::from_millis(opt.delay)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(opt.delay)).await;
     }
 
-    abort_handle_v2.abort();
-    abort_handle_v1.abort();
+    handle_v2.abort();
+    handle_v1.abort();
 
     let mut result_mac_addresses = std::collections::HashSet::new();
 
-    // use try_recv for ignore RecvHalf.recv_from().
-    while let Ok((from_address, data)) = result_rx.try_recv() {
+    while let Some((from_address, data)) = result_rx.recv().await {
         if result_mac_addresses.contains(&data.mac_address) {
             continue;
         }

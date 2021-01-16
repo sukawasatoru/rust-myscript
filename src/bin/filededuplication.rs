@@ -10,7 +10,7 @@ use std::process::exit;
 use std::sync::Arc;
 use structopt::clap::ArgGroup;
 use structopt::StructOpt;
-use tokio::prelude::*;
+use tokio::io::AsyncReadExt;
 
 struct HexFormat<'a>(&'a [u8]);
 
