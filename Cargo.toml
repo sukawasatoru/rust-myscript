@@ -42,7 +42,7 @@ git = "https://github.com/sukawasatoru/tinytable-rs.git"
 tag = "v0.3.0"
 
 [dependencies.tokio]
-version = "=1.0.2"
+version = "=1.1.0"
 features = ["fs", "macros", "net", "rt-multi-thread"]
 
 [dependencies.uuid]
@@ -50,7 +50,7 @@ version = "=0.8.2"
 features = ["v4"]
 
 [dependencies.serde]
-version = "=1.0.119"
+version = "=1.0.123"
 features = ["derive"]
 
 [dependencies.strum]
