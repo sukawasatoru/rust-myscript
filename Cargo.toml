@@ -58,6 +58,5 @@ version = "=0.20.0"
 features = ["derive"]
 
 [dependencies.warp]
-git = "https://github.com/seanmonstar/warp.git"
-rev = "ffefea0"
+version = "=0.3.0"
 features = ["tls"]
