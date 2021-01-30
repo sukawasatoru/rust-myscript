@@ -1,6 +1,5 @@
 use blake2::{Blake2b, Digest};
 use futures::prelude::*;
-use log::{debug, info};
 use rust_myscript::prelude::*;
 use std::collections::HashSet;
 use std::ffi::CString;
@@ -11,6 +10,7 @@ use std::sync::Arc;
 use structopt::clap::ArgGroup;
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
+use tracing::{debug, info, Instrument};
 
 struct HexFormat<'a>(&'a [u8]);
 
@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     info!("Hello");
 
@@ -90,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
         exit(1);
     }
 
-    debug!("target_dir: {:?}", opt.target_dir);
+    debug!(target_dir = ?opt.target_dir);
 
     let mut files = HashSet::new();
     for target in &opt.target_dir {
@@ -99,16 +99,17 @@ async fn main() -> anyhow::Result<()> {
 
     // launchctl limit maxfiles
     let semapho = Arc::new(tokio::sync::Semaphore::new(
-        opt.jobs.unwrap_or_else(num_cpus::get).min(200),
+        opt.jobs.unwrap_or_else(|| num_cpus::get() + 1).min(200),
     ));
     let mut futs = futures::stream::FuturesUnordered::new();
 
     for entry in files {
+        let span = tracing::info_span!("fut", path = &*entry.to_string_lossy());
         let semapho = semapho.clone();
         let fut = async move {
             let _lock = semapho.acquire().await;
 
-            info!("calculate begin. path: {:?}", entry);
+            info!("calculate begin");
             let mut digest = Blake2b::new();
             let source_file = tokio::fs::File::open(&entry).await.unwrap();
             let mut reader = tokio::io::BufReader::new(source_file);
@@ -127,13 +128,10 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let hash = digest.finalize_reset().to_vec();
-            info!(
-                "calculate end. path: {:?}, hash: {}",
-                entry,
-                HexFormat(&hash)
-            );
+            info!(hash = %HexFormat(&hash), "calculate end");
             Some((entry, hash))
-        };
+        }
+        .instrument(span);
         futs.push(fut);
     }
 
@@ -157,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        info!("{:?}", value);
+        info!(?value);
         let source = &value[0];
         for file_path in &value[1..value.len()] {
             if let Some(ref backup_dir_root) = opt.backup_dir {
@@ -176,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
                         backup_path_parent, file_path
                     );
                 } else {
-                    debug!("create {:?}", backup_path_parent);
+                    debug!(?backup_path_parent, "create");
                     let create_dir_ret = tokio::fs::create_dir_all(backup_path_parent).await;
 
                     if create_dir_ret.is_err() {
@@ -184,7 +182,7 @@ async fn main() -> anyhow::Result<()> {
                         continue;
                     }
 
-                    debug!("rename to: {:?}, from: {:?}", backup_path, file_path);
+                    debug!(from = ?file_path, to = ?backup_path, "rename");
                     let move_ret = tokio::fs::rename(&file_path, &backup_path).await;
                     if move_ret.is_err() {
                         eprintln!("failed to move file: {:?}", move_ret);
@@ -197,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
                 if opt.dry_run {
                     eprintln!("Would remove {:?}", file_path);
                 } else {
-                    debug!("remove: {:?}", file_path);
+                    debug!(?file_path, "remove");
                     let ret_rm = tokio::fs::remove_file(file_path).await;
                     if ret_rm.is_err() {
                         eprintln!("failed to remove file: {:?}", ret_rm);
@@ -251,15 +249,15 @@ fn walk_dir(
             let symlink_file_type = symlink_meta.file_type();
 
             if symlink_file_type.is_symlink() {
-                debug!("ignore symlink: {:?}", dir_entry_path);
+                debug!(?dir_entry_path, "ignore symlink");
             } else if symlink_file_type.is_dir() {
-                debug!("dir: {:?}", dir_entry_path);
+                debug!(?dir_entry_path, "dir");
                 let ret = walk_dir(&dir_entry_path).await?;
                 files.extend(ret);
             } else if symlink_file_type.is_file() {
-                debug!("file: {:?}", dir_entry_path);
+                debug!(?dir_entry_path, "file");
                 if symlink_meta.permissions().readonly() {
-                    debug!("readonly: {:?}", dir_entry_path);
+                    debug!(?dir_entry_path, "readonly");
                     continue;
                 }
                 files.insert(dir_entry_path);
