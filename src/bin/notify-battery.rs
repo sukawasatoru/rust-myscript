@@ -1,8 +1,8 @@
-use log::{debug, info};
 use regex::Regex;
 use rust_myscript::prelude::*;
 use std::io::BufRead;
 use structopt::StructOpt;
+use tracing::{debug, info};
 
 struct Context {
     terminal_notifier_name: String,
@@ -34,7 +34,7 @@ struct Opt {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     info!("Hello");
 
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let use_terminal_notifier = check_terminal_notifier(&context.terminal_notifier_name);
-    debug!("use_terminal_notifier: {}", use_terminal_notifier);
+    debug!(%use_terminal_notifier);
 
     let process = std::process::Command::new("pmset")
         .args(&["-g", "pslog"])
@@ -75,10 +75,7 @@ async fn main() -> anyhow::Result<()> {
             Some(data) => data,
             None => continue,
         };
-        info!(
-            "battery_level: {}, remaining: {}",
-            ps_info.battery_level, ps_info.battery_remaining
-        );
+        info!(%ps_info.battery_level, %ps_info.battery_remaining);
 
         if ps_info.charging {
             continue;
@@ -90,8 +87,8 @@ async fn main() -> anyhow::Result<()> {
             }
 
             match notify_slack(&context, &ps_info).await {
-                Ok(data) => info!("notify success: {}", data),
-                Err(e) => info!("notify fail: {}", e),
+                Ok(data) => info!(%data, "notify success"),
+                Err(e) => info!(%e, "notify fail"),
             };
         }
     }
@@ -151,7 +148,7 @@ fn notify_terminal(context: &Context, ps_info: &PSInfo) -> anyhow::Result<()> {
 }
 
 async fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<String> {
-    debug!("payload: {}", generate_slack_payload(&context, &ps_info));
+    debug!(payload = %generate_slack_payload(&context, &ps_info));
     let ret = context
         .reqwest_client
         .post(&context.slack_notify_url)

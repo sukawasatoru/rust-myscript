@@ -1,9 +1,9 @@
-use log::{debug, info, trace, warn};
 use rust_myscript::prelude::*;
 use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use structopt::StructOpt;
+use tracing::{debug, info, trace, warn};
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -83,7 +83,7 @@ struct Context {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     info!("hello!");
 
@@ -159,7 +159,7 @@ async fn parallel_strategy(
                 match retrieve_product_name(context.clone(), client.clone(), &address).await {
                     Ok(data) => data,
                     Err(e) => {
-                        trace!("{:?}", e);
+                        trace!(err = ?e);
                         eprint!(".");
                         return;
                     }
@@ -171,7 +171,7 @@ async fn parallel_strategy(
                 {
                     Ok(data) => data,
                     Err(e) => {
-                        trace!("{:?}", e);
+                        trace!(err = ?e);
                         eprint!(".");
                         return;
                     }
@@ -217,7 +217,7 @@ async fn retrieve_product_name(
     form_data.insert("REQ_ID", "PRODUCT_NAME_GET");
 
     let result_string = request_aterm(client, target, &context.timeout, &form_data).await?;
-    debug!("ip: {}, result_string: {}", target, result_string);
+    debug!(ip = %target, %result_string);
     let product_name = context
         .regex_product_name
         .captures(result_string.trim())
@@ -238,7 +238,7 @@ async fn retrieve_system_mode(
     form_data.insert("REQ_ID", "SYS_MODE_GET");
 
     let response_string = request_aterm(client, target, &context.timeout, &form_data).await?;
-    trace!("ip: {}, result: {}", target, response_string);
+    trace!(ip = %target, %response_string);
 
     let ret = context
         .regex_system_mode
@@ -258,7 +258,7 @@ async fn request_aterm(
     timeout: &std::time::Duration,
     form_data: &std::collections::HashMap<&'static str, &'static str>,
 ) -> anyhow::Result<String> {
-    trace!("request ip: {}, form: {:?}", target, form_data);
+    trace!(ip = %target, from = ?form_data, "request");
     let response = client
         .post(&format!(
             "http://{}/aterm_httpif.cgi/getparamcmd_no_auth",
@@ -268,12 +268,12 @@ async fn request_aterm(
         .timeout(*timeout)
         .send()
         .await?;
-    trace!("response ip: {}, body: {:?}", target, response);
+    trace!(ip = %target, body = ?response, "response");
 
     match response.error_for_status() {
         Ok(ret) => Ok(ret.text().await?),
         Err(e) => {
-            debug!("err: {:?}", e);
+            debug!(err = ?e);
             Err(e.into())
         }
     }

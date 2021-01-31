@@ -1,4 +1,3 @@
-use log::{debug, info};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
+use tracing::{debug, info};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "trimhistory")]
@@ -81,10 +81,10 @@ impl Statistics {
 
 fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let opt: Opt = Opt::from_args();
-    debug!("config: {:?}", opt);
+    debug!(?opt);
 
     match opt.cmd {
         Command::Trim {
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<()> {
-    debug!("input {:?}", history_path);
+    debug!(?history_path);
     let project_dirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
     let statistics_path = project_dirs.data_dir().join("statistics.toml");
@@ -122,10 +122,10 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<(
                         line.pop();
                     }
                 }
-                debug!("result: {:?}", line);
+                debug!(result = ?line);
                 let trimmed_line = line.trim();
                 if let Some(index) = trimmed.iter().position(|entity| trimmed_line == entity) {
-                    debug!("contains: {}", index);
+                    debug!(index, "contains");
                     trimmed.remove(index);
                     trim_count += 1;
                     increment_command_count(&mut statistics, trimmed_line);
@@ -137,7 +137,7 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<(
         }
     }
 
-    info!("trim_count: {}, len: {}", trim_count, trimmed.len());
+    info!(trim_count, trimmed_len = trimmed.len());
 
     if let Some(backup_path) = backup_path {
         std::fs::copy(&history_path, backup_path)?;

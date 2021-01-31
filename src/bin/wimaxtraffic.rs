@@ -1,4 +1,3 @@
-use log::info;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,6 +5,7 @@ use std::{
     io::{prelude::*, BufWriter},
     path::Path,
 };
+use tracing::info;
 
 #[derive(Deserialize, Serialize)]
 struct Config {
@@ -31,7 +31,7 @@ impl Default for Config {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     let project_dir =
         directories::ProjectDirs::from("jp", "tinyport", "wimaxtraffic").context("projectDirs")?;
     let config_path = project_dir.config_dir().join("config.toml");
@@ -95,7 +95,7 @@ fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config
     let config = Config::new();
     let mut buffer = BufWriter::new(File::create(path)?);
     buffer.write_all(&toml::to_vec(&config)?)?;
-    info!("Config file created successfully: {:?}", path);
+    info!(?path, "Config file created successfully");
     Ok(config)
 }
 

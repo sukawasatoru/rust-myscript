@@ -1,4 +1,3 @@
-use log::{debug, info, trace};
 use regex::Regex;
 use rust_myscript::prelude::*;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -11,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
+use tracing::{debug, info, trace};
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
@@ -304,11 +304,11 @@ impl Default for GitHubConfig {
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     let opt: Opt = Opt::from_args();
-    setup_log(opt.verbose)?;
+    setup_log(opt.verbose);
     info!("Hello");
-    info!("log level: {}", log::max_level());
+    info!(max_level = %log::max_level());
 
-    debug!("opt: {:?}", opt);
+    debug!(?opt);
 
     let project_dirs = directories::ProjectDirs::from("jp", "tinyport", "checkghossversion")
         .context("ProjectDirs")?;
@@ -331,7 +331,7 @@ async fn main() -> anyhow::Result<()> {
         .load::<GithubOssConfig>(&recipe_path)
         .expect("failed to open a recipe");
 
-    trace!("list={:?}", oss_list);
+    trace!(?oss_list);
 
     let mut client_builder = reqwest::Client::builder().user_agent("checkghossversion");
 
@@ -340,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let body = generate_body(&oss_list.oss, false, opt.query_per_repo)?;
-    trace!("{}", body);
+    trace!(%body);
     let result = client_builder
         .build()?
         .post(&oss_list.github.host)
@@ -350,7 +350,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .text()
         .await?;
-    trace!("result={}", result);
+    trace!(%result);
 
     let mut result = serde_json::from_str::<Value>(&result)?;
     let regex = Regex::new(r"[-./]")?;
@@ -359,7 +359,7 @@ async fn main() -> anyhow::Result<()> {
         let repo_name = regex.replace_all(&oss.repo, "_").to_string();
         let version_reg = match oss.version_rule {
             Some(ref rule) => {
-                debug!("{} use version_rules: {}", oss.repo, rule);
+                debug!(%oss.repo, %rule);
                 Some(regex::Regex::new(rule)?)
             }
             None => None,
@@ -444,7 +444,7 @@ fn print_release(release: &Option<ResultRelease>, oss: &GithubOss) {
     match release {
         Some(release) => {
             if oss.version == release.tag.name {
-                info!("latest: repo={} tag={}", oss.repo, release.tag.name)
+                info!(%oss.repo, %release.tag.name, "latest")
             } else {
                 println!(
                     "new version was found: repo={} current={} latest={} url={}",
@@ -460,7 +460,7 @@ fn print_tag(tag: &Option<ResultTag>, oss: &GithubOss) {
     match tag {
         Some(tag) => {
             if oss.version == tag.name {
-                info!("latest: repo={} tag={}", oss.repo, tag.name)
+                info!(%oss.repo, %tag.name, "latest")
             } else {
                 println!(
                     "new version was found: repo={} current={} latest={} url={}",
@@ -513,15 +513,13 @@ fn get_proxy() -> Option<String> {
         .ok()
 }
 
-fn setup_log(level: u8) -> anyhow::Result<()> {
-    use log::LevelFilter::*;
-
-    let mut builder = env_logger::Builder::from_default_env();
-    let builder = match level {
-        0 => &mut builder,
-        1 => builder.filter_level(Info),
-        2 => builder.filter_level(Debug),
-        _ => builder.filter_level(Trace),
+fn setup_log(level: u8) {
+    let builder = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env());
+    match level {
+        0 => builder.init(),
+        1 => builder.with_max_level(tracing::Level::INFO).init(),
+        2 => builder.with_max_level(tracing::Level::DEBUG).init(),
+        _ => builder.with_max_level(tracing::Level::TRACE).init(),
     };
-    Ok(builder.try_init()?)
 }

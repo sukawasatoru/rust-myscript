@@ -8,8 +8,8 @@ extern crate structopt;
 
 use std::{path::PathBuf, process::Command};
 
-use log::{debug, info};
 use structopt::StructOpt;
+use tracing::{debug, info};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "backuphistory")]
@@ -36,12 +36,12 @@ struct Config {
 
 fn main() {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     info!("Hello");
 
     let config: Config = Config::from_args();
-    debug!("config={:?}", config);
+    debug!(?config);
     let source = config.source;
     let target = config.target;
     if !source.exists() {
@@ -62,7 +62,7 @@ fn main() {
         target
     };
 
-    debug!("target={:?}", target);
+    debug!(?target);
 
     std::fs::copy(&source, &target).unwrap();
 

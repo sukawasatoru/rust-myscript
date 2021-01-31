@@ -1,8 +1,8 @@
 use digest::Digest;
-use log::{debug, info, warn};
 use rust_myscript::prelude::*;
 use std::str::FromStr;
 use structopt::StructOpt;
+use tracing::{debug, info, warn};
 use warp::http::header;
 use warp::http::StatusCode;
 use warp::Filter;
@@ -313,7 +313,7 @@ struct Context {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     info!("Hello");
 
@@ -333,10 +333,7 @@ async fn main() -> anyhow::Result<()> {
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
                 let ctx = digest_2069_ctx.clone();
-                info!(
-                    "rfc2069 header: {:?}, query: {:?}",
-                    header_authorization, digest_query
-                );
+                info!(?header_authorization, ?digest_query, "rfc2069");
 
                 let www_auth = warp::http::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
@@ -354,7 +351,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(data) => match DigestHeaderParameters::from_str(&data) {
                         Ok(d) => d,
                         Err(e) => {
-                            info!("{:?}", e);
+                            info!(?e);
                             return www_auth;
                         }
                     },
@@ -398,10 +395,7 @@ async fn main() -> anyhow::Result<()> {
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
                 let ctx = md5_auth_ctx.clone();
-                info!(
-                    "md5_auth header: {:?}, query: {:?}",
-                    header_authorization, digest_query
-                );
+                info!(?header_authorization, ?digest_query, "md5_auth");
 
                 let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
@@ -421,7 +415,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(data) => match DigestHeaderParameters::from_str(&data) {
                         Ok(d) => d,
                         Err(e) => {
-                            info!("{:?}", e);
+                            info!(?e);
                             return www_auth;
                         }
                     },
@@ -506,10 +500,7 @@ async fn main() -> anyhow::Result<()> {
         .map(
             move |header_authorization: Option<String>, digest_query: DigestQuery| {
                 let ctx = md5_sess_auth_ctx.clone();
-                info!(
-                    "md5_sess_auth header: {:?}, query: {:?}",
-                    header_authorization, digest_query
-                );
+                info!(?header_authorization, ?digest_query, "md5_sess_auth");
 
                 let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
                 let www_auth = warp::http::Response::builder()
@@ -529,7 +520,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(data) => match DigestHeaderParameters::from_str(&data) {
                         Ok(d) => d,
                         Err(e) => {
-                            info!("{:?}", e);
+                            info!(?e);
                             return www_auth;
                         }
                     },
@@ -636,10 +627,10 @@ async fn main() -> anyhow::Result<()> {
                   body: bytes::Bytes| {
                 let ctx = md5_auth_int_ctx.clone();
                 info!(
-                    "md5_auth_int (GET) header: {:?}, query: {:?}, body: {:?}",
-                    header_authorization,
-                    digest_query,
-                    String::from_utf8_lossy(&body)
+                    ?header_authorization,
+                    ?digest_query,
+                    body = ?String::from_utf8_lossy(&body),
+                    "md5_auth_int (GET)"
                 );
 
                 let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
@@ -660,7 +651,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(data) => match DigestHeaderParameters::from_str(&data) {
                         Ok(d) => d,
                         Err(e) => {
-                            info!("{:?}", e);
+                            info!(?e);
                             return www_auth;
                         }
                     },
@@ -751,10 +742,10 @@ async fn main() -> anyhow::Result<()> {
                   body: bytes::Bytes| {
                 let ctx = md5_auth_int_post_ctx.clone();
                 info!(
-                    "md5_auth_int (POST) header: {:?}, query: {:?} body {:?}",
-                    header_authorization,
-                    digest_query,
-                    String::from_utf8_lossy(&body)
+                    ?header_authorization,
+                    ?digest_query,
+                    body = ?String::from_utf8_lossy(&body),
+                    "md5_auth_int (POST)",
                 );
 
                 let algorithm = digest_query.algorithm.unwrap_or(Algorithm::Md5);
@@ -775,7 +766,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(data) => match DigestHeaderParameters::from_str(&data) {
                         Ok(d) => d,
                         Err(e) => {
-                            info!("{:?}", e);
+                            info!(?e);
                             return www_auth;
                         }
                     },
@@ -1005,7 +996,7 @@ fn get_non_unq_value(segment: &str) -> Option<&str> {
     match segment.find('=') {
         Some(index) => Some(&segment[index + 1..segment.len()]),
         None => {
-            warn!("unexpected format: {}", segment);
+            warn!(%segment, "unexpected format");
             None
         }
     }
@@ -1016,7 +1007,7 @@ fn get_unq_value(segment: &str) -> Option<&str> {
     match segment.find(r#"=""#) {
         Some(index) => Some(&segment[index + 2..segment.len() - 1]),
         None => {
-            warn!("unexpected format: {}", segment);
+            warn!(%segment, "unexpected format");
             None
         }
     }
@@ -1072,7 +1063,7 @@ impl std::str::FromStr for DigestHeaderParameters {
             } else if algorithm.is_none() && entry.starts_with("algorithm=") {
                 algorithm = get_non_unq_value(entry);
             } else {
-                debug!("unexpected entry: {:?}", entry);
+                debug!(?entry, "unexpected entry");
             }
         }
 

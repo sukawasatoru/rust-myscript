@@ -1,10 +1,10 @@
-use log::{debug, info, trace, warn};
 use std::fmt::Write;
 use std::io::prelude::*;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use structopt::StructOpt;
 use strum::{EnumIter, IntoEnumIterator};
+use tracing::{debug, info, trace, warn};
 
 #[derive(StructOpt)]
 struct Opt {
@@ -47,7 +47,7 @@ impl std::str::FromStr for MacAddress {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let opt: Opt = Opt::from_args();
     let mac_address = opt.mac_address;
@@ -61,19 +61,19 @@ async fn main() -> anyhow::Result<()> {
                 let (n, from_address) = match socket_rx.recv_from(&mut ret_buf).await {
                     Ok(d) => d,
                     Err(e) => {
-                        warn!("failed to retrieve data {:?}", e);
+                        warn!(?e, "failed to retrieve data");
                         continue;
                     }
                 };
-                debug!("n: {}, address: {}", n, from_address);
+                debug!(%n, %from_address);
                 let device_info = match decode_datagram(&ret_buf[..n]) {
                     Ok(d) => d,
                     Err(e) => {
-                        warn!("failed to decode datagram: {:?}", e);
+                        warn!(?e, "failed to decode datagram");
                         continue;
                     }
                 };
-                info!("decoded: {} {:?}", from_address.ip(), device_info);
+                info!(ip = %from_address.ip(), ?device_info, "decoded");
                 tx.send((from_address, device_info)).await.ok();
             }
         })
@@ -599,7 +599,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
     let mut info: DeviceInfo = Default::default();
 
     loop {
-        debug!("parse: {:?}", section);
+        debug!(parse = ?section);
 
         let n = datagram.read(&mut buf)?;
         if n != 2 {
@@ -617,7 +617,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
             let len = (buf[0] as usize) << 8 | buf[1] as usize;
 
             if 0 < len {
-                trace!("consume {}", len);
+                trace!(%len, "consume");
                 if datagram.len() <= len {
                     anyhow::bail!(
                         "slice index starts at {} but ends at {}",

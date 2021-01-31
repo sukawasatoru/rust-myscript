@@ -1,4 +1,4 @@
-use log::{debug, info};
+use tracing::{debug, info};
 
 #[derive(Debug)]
 struct Entity {
@@ -50,7 +50,7 @@ impl std::fmt::Display for IllegalFormatError {
 
 fn main() {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     info!("Hello");
 
     loop {
@@ -59,16 +59,16 @@ fn main() {
                 if lh.hash.eq(&rh.hash) {
                     println!("OK hash={} lh={} rh={}", lh.hash, lh.name, rh.name);
                 } else {
-                    println!("NG");
+                    println!("NG lh={} rh={}", lh.name, rh.name);
                 }
-                debug!("lh={:?} rh={:?}", lh, rh);
+                debug!(?lh, ?rh);
             }
             Ok(None) => {
                 info!("none");
                 break;
             }
             Err(e) => {
-                info!("err {:?}", e);
+                info!(err = ?e);
                 break;
             }
         }

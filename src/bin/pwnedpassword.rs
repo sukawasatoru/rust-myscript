@@ -1,5 +1,4 @@
 use digest::Digest;
-use log::info;
 use rusqlite::{params, NO_PARAMS};
 use rust_myscript::prelude::*;
 use std::io::prelude::*;
@@ -8,6 +7,7 @@ use structopt::StructOpt;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
 use tinytable_rs::{column, Column, Table};
+use tracing::info;
 
 #[derive(StructOpt)]
 struct Opt {
@@ -82,7 +82,7 @@ const DB_NAME: &str = "pwned-password-sha1.sqlite";
 // https://haveibeenpwned.com/passwords
 fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let opt: Opt = Opt::from_args();
 
