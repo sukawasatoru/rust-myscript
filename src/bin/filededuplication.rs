@@ -106,38 +106,40 @@ async fn main() -> anyhow::Result<()> {
     for entry in files {
         let span = tracing::info_span!("fut", path = &*entry.to_string_lossy());
         let semapho = semapho.clone();
-        let fut = async move {
-            let _lock = semapho.acquire().await;
+        let fut = tokio::task::spawn(
+            async move {
+                let _lock = semapho.acquire().await;
 
-            info!("calculate begin");
-            let mut digest = Blake2b::new();
-            let source_file = tokio::fs::File::open(&entry).await.unwrap();
-            let mut reader = tokio::io::BufReader::new(source_file);
+                info!("calculate begin");
+                let mut digest = Blake2b::new();
+                let source_file = tokio::fs::File::open(&entry).await.unwrap();
+                let mut reader = tokio::io::BufReader::new(source_file);
 
-            let mut buf = [0u8; 4096];
-            loop {
-                let n = match reader.read(&mut buf).await {
-                    Ok(n) if n == 0 => break,
-                    Ok(n) => n,
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        return None;
-                    }
-                };
-                digest.update(&buf[0..n]);
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = match reader.read(&mut buf).await {
+                        Ok(n) if n == 0 => break,
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("{:?}", e);
+                            return None;
+                        }
+                    };
+                    digest.update(&buf[0..n]);
+                }
+
+                let hash = digest.finalize_reset().to_vec();
+                info!(hash = %HexFormat(&hash), "calculate end");
+                Some((entry, hash))
             }
-
-            let hash = digest.finalize_reset().to_vec();
-            info!(hash = %HexFormat(&hash), "calculate end");
-            Some((entry, hash))
-        }
-        .instrument(span);
+            .instrument(span),
+        );
         futs.push(fut);
     }
 
     let mut file_hash_map = std::collections::HashMap::<Vec<u8>, Vec<PathBuf>>::new();
     while let Some(data) = futs.next().await {
-        let (entry, hash) = match data {
+        let (entry, hash) = match data? {
             Some(d) => d,
             None => continue,
         };
