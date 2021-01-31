@@ -6,11 +6,10 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::exit;
-use std::sync::Arc;
 use structopt::clap::ArgGroup;
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, info, Instrument};
+use tracing::{debug, info, warn, Instrument};
 
 struct HexFormat<'a>(&'a [u8]);
 
@@ -98,56 +97,60 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // launchctl limit maxfiles
-    let semapho = Arc::new(tokio::sync::Semaphore::new(
-        opt.jobs.unwrap_or_else(|| num_cpus::get() + 1).min(200),
-    ));
-    let mut futs = futures::stream::FuturesUnordered::new();
+    let job_num = opt.jobs.unwrap_or_else(num_cpus::get).min(200);
 
-    for entry in files {
-        let span = tracing::info_span!("fut", path = &*entry.to_string_lossy());
-        let semapho = semapho.clone();
+    let mut files = files.into_iter().collect::<Vec<_>>();
+    let window = files.len() / job_num;
+    let mut futs = futures::stream::FuturesUnordered::new();
+    for index in 0..job_num {
+        let entries = if index == job_num - 1 {
+            files.drain(..).collect::<Vec<_>>()
+        } else {
+            files.drain(0..window).collect::<Vec<_>>()
+        };
+
         let fut = tokio::task::spawn(
             async move {
-                let _lock = semapho.acquire().await;
-
-                info!("calculate begin");
                 let mut digest = Blake2b::new();
-                let source_file = tokio::fs::File::open(&entry).await.unwrap();
-                let mut reader = tokio::io::BufReader::new(source_file);
-
                 let mut buf = [0u8; 4096];
-                loop {
-                    let n = match reader.read(&mut buf).await {
-                        Ok(n) if n == 0 => break,
-                        Ok(n) => n,
-                        Err(e) => {
-                            eprintln!("{:?}", e);
-                            return None;
-                        }
-                    };
-                    digest.update(&buf[0..n]);
-                }
+                let mut ret = Vec::with_capacity(entries.len());
+                'entry: for entry in entries {
+                    info!("calculate begin");
+                    let source_file = tokio::fs::File::open(&entry).await.unwrap();
+                    let mut reader = tokio::io::BufReader::new(source_file);
 
-                let hash = digest.finalize_reset().to_vec();
-                info!(hash = %HexFormat(&hash), "calculate end");
-                Some((entry, hash))
+                    loop {
+                        let n = match reader.read(&mut buf).await {
+                            Ok(n) if n == 0 => break,
+                            Ok(n) => n,
+                            Err(e) => {
+                                eprintln!("{:?}", e);
+                                warn!(?e);
+                                continue 'entry;
+                            }
+                        };
+                        digest.update(&buf[0..n]);
+                    }
+
+                    let hash = digest.finalize_reset().to_vec();
+                    info!(hash = %HexFormat(&hash), "calculate end");
+                    ret.push((entry, hash))
+                }
+                ret
             }
-            .instrument(span),
+            .instrument(tracing::info_span!("fut", index)),
         );
         futs.push(fut);
     }
 
     let mut file_hash_map = std::collections::HashMap::<Vec<u8>, Vec<PathBuf>>::new();
     while let Some(data) = futs.next().await {
-        let (entry, hash) = match data? {
-            Some(d) => d,
-            None => continue,
-        };
-
-        match file_hash_map.get_mut(&hash) {
-            Some(data) => data.push(entry),
-            None => {
-                file_hash_map.insert(hash, vec![entry]);
+        for (entry, hash) in data? {
+            match file_hash_map.get_mut(&hash) {
+                Some(data) => data.push(entry),
+                None => {
+                    file_hash_map.insert(hash, vec![entry]);
+                }
             }
         }
     }
