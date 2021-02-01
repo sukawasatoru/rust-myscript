@@ -306,7 +306,6 @@ async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     setup_log(opt.verbose);
     info!("Hello");
-    info!(max_level = %log::max_level());
 
     debug!(?opt);
 
