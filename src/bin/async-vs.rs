@@ -62,7 +62,7 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
-async fn thread_pool_like(jobs: usize, mut works: Vec<impl Fn() -> () + Send + 'static>) {
+async fn thread_pool_like(jobs: usize, mut works: Vec<impl Fn() -> usize + Send + 'static>) {
     let window = works.len() / jobs;
     let futs = futures::stream::FuturesUnordered::new();
     for index in 0..jobs {
@@ -73,39 +73,43 @@ async fn thread_pool_like(jobs: usize, mut works: Vec<impl Fn() -> () + Send + '
         };
 
         let fut = tokio::task::spawn(async move {
+            let mut ret = Vec::with_capacity(entries.len());
             for w in entries {
-                w();
+                ret.push(w());
             }
+            ret
         });
         futs.push(fut);
     }
     futs.collect::<Vec<_>>().await;
 }
 
-async fn semaphore_type(jobs: usize, works: Vec<impl Fn() -> () + Send + 'static>) {
+async fn semaphore_type(jobs: usize, works: Vec<impl Fn() -> usize + Send + 'static>) {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(jobs));
     let futs = futures::stream::FuturesUnordered::new();
     for w in works {
         let semaphore = semaphore.clone();
         let fut = tokio::task::spawn(async move {
             let _lock = semaphore.acquire().await;
-            w();
+            w()
         });
         futs.push(fut);
     }
     futs.collect::<Vec<_>>().await;
 }
 
-fn create_work(count: usize) -> impl Fn() -> () {
+fn create_work(count: usize) -> impl Fn() -> usize {
     move || {
+        let mut a = 0;
         for i in 0..count {
-            nothing(i);
+            a = nothing(i);
         }
+        a
     }
 }
 
-fn nothing(_: usize) {
-    // do nothing.
+fn nothing(i: usize) -> usize {
+    i
 }
 
 fn create_1_0(
@@ -113,7 +117,7 @@ fn create_1_0(
     heavy_weight: usize,
     light: usize,
     light_weight: usize,
-) -> Vec<impl Fn() -> () + Send + 'static> {
+) -> Vec<impl Fn() -> usize + Send + 'static> {
     let mut works = vec![];
     for _ in 0..heavy {
         works.push(create_work(heavy_weight));
