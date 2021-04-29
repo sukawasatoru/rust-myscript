@@ -1,0 +1,66 @@
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: daily
+    timezone: Asia/Tokyo
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: bytes
+    versions:
+    - ">= 0.6.a, < 0.7"
+  - dependency-name: libc
+    versions:
+    - 0.2.84
+    - 0.2.85
+    - 0.2.86
+    - 0.2.87
+    - 0.2.88
+    - 0.2.89
+    - 0.2.90
+    - 0.2.91
+    - 0.2.92
+    - 0.2.93
+  - dependency-name: rusqlite
+    versions:
+    - 0.25.0
+  - dependency-name: serde
+    versions:
+    - 1.0.124
+    - 1.0.125
+  - dependency-name: tracing-subscriber
+    versions:
+    - 0.2.16
+    - 0.2.17
+  - dependency-name: reqwest
+    versions:
+    - 0.11.1
+    - 0.11.2
+  - dependency-name: serde_json
+    versions:
+    - 1.0.62
+    - 1.0.63
+    - 1.0.64
+  - dependency-name: tracing
+    versions:
+    - 0.1.23
+    - 0.1.24
+    - 0.1.25
+  - dependency-name: futures
+    versions:
+    - 0.3.13
+  - dependency-name: thiserror
+    versions:
+    - 1.0.24
+  - dependency-name: sha-1
+    versions:
+    - 0.9.3
+    - 0.9.4
+  - dependency-name: sha2
+    versions:
+    - 0.9.3
+  - dependency-name: tokio
+    versions:
+    - 1.1.1
+    - 1.2.0
