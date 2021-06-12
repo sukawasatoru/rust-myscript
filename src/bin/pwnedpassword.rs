@@ -1,5 +1,5 @@
 use digest::Digest;
-use rusqlite::{params, NO_PARAMS};
+use rusqlite::params;
 use rust_myscript::prelude::*;
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -144,7 +144,7 @@ fn create_db() -> anyhow::Result<()> {
 
     let mut conn = rusqlite::Connection::open(DB_NAME)?;
     let password_table = PasswordTable::new();
-    conn.execute(&password_table.create_sql(), NO_PARAMS)?;
+    conn.execute(&password_table.create_sql(), [])?;
     let transaction = conn.transaction()?;
     let mut insert_statement = transaction.prepare(&format!(
         "INSERT INTO {} ({}, {}) VALUES(?, ?)",

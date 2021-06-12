@@ -1,5 +1,5 @@
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
-use rusqlite::{Connection, NO_PARAMS};
+use rusqlite::Connection;
 use rust_myscript::prelude::*;
 use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
@@ -37,7 +37,7 @@ fn main() -> Fallible<()> {
 fn retrieve_user_version(conn: &mut Connection) -> Fallible<SQLiteUserVersion> {
     let user_version = conn
         .prepare_cached("PRAGMA user_version")?
-        .query(NO_PARAMS)?
+        .query([])?
         .next()?
         .context("failed to query the user_version")?
         .get(0)?;
