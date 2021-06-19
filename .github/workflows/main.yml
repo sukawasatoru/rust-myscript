@@ -1,16 +1,21 @@
 name: Build
-
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
   pull_request:
-    branches: [ master ]
-env:
-  CARGO_TERM_COLOR: always
+    branches:
+      - master
 jobs:
   build:
-    # https://github.com/actions/virtual-environments#available-environments
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        # https://github.com/actions/virtual-environments#available-environments
+        os:
+          - macos-latest
+          - ubuntu-20.04
+          - windows-2019
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Build
@@ -21,6 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Setup Rust
-        run: rustup component add rustfmt
       - run: cargo -v fmt -- --check
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo clippy
