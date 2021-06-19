@@ -9,6 +9,8 @@ jobs:
         - rust
         - agent.os -equals Darwin
     steps:
+      - checkout: self
+        clean: true
       - script: |
           cargo -v build 2> >(tee stderr.log >&2)
           CODE=$?
