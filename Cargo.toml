@@ -8,7 +8,7 @@ edition = "2018"
 anyhow = "*"
 
 [dependencies]
-anyhow = "=1.0.42"
+anyhow = "=1.0.43"
 blake2 = "=0.9.1"
 bytes = "=1.0.1"
 digest = "=0.9.0"
