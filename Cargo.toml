@@ -8,33 +8,32 @@ edition = "2018"
 anyhow = "*"
 
 [dependencies]
-anyhow = "=1.0.42"
-blake2 = "=0.9.1"
-bytes = "=1.0.1"
+anyhow = "=1.0.45"
+blake2 = "=0.9.2"
+bytes = "=1.1.0"
 digest = "=0.9.0"
-directories = "=3.0.2"
+directories = "=4.0.1"
 dotenv = "=0.15.0"
-futures = "=0.3.16"
-libc = "=0.2.98"
+futures = "=0.3.17"
+libc = "=0.2.106"
 md-5 = "=0.9.1"
 num_cpus = "=1.13.0"
 regex = "=1.5.4"
-serde_json = "=1.0.66"
-sha-1 = "=0.9.7"
-sha2 = "=0.9.5"
-structopt = "=0.3.22"
-thiserror = "=1.0.26"
+serde_json = "=1.0.68"
+sha-1 = "=0.9.8"
+sha2 = "=0.9.8"
+structopt = "=0.3.25"
+thiserror = "=1.0.30"
 toml = "=0.5.8"
-tracing = "=0.1.26"
-tracing-subscriber = "=0.2.19"
+tracing = "=0.1.29"
 trust-dns-resolver = "=0.20.3"
 
 [dependencies.reqwest]
-version = "=0.11.4"
+version = "=0.11.6"
 features = ["blocking", "json"]
 
 [dependencies.rusqlite]
-version = "=0.25.3"
+version = "=0.26.1"
 features = ["bundled-windows"]
 
 [dependencies.tinytable-rs]
@@ -42,7 +41,7 @@ git = "https://github.com/sukawasatoru/tinytable-rs.git"
 tag = "v0.3.0"
 
 [dependencies.tokio]
-version = "=1.9.0"
+version = "=1.13.0"
 features = ["fs", "macros", "net", "rt-multi-thread"]
 
 [dependencies.uuid]
@@ -50,12 +49,16 @@ version = "=0.8.2"
 features = ["v4"]
 
 [dependencies.serde]
-version = "=1.0.127"
+version = "=1.0.130"
 features = ["derive"]
 
 [dependencies.strum]
-version = "=0.21.0"
+version = "=0.22.0"
 features = ["derive"]
+
+[dependencies.tracing-subscriber]
+version = "=0.3.1"
+features = ["env-filter"]
 
 [dependencies.warp]
 version = "=0.3.1"
