@@ -1,4 +1,4 @@
-use blake2::{Blake2b, Digest};
+use blake2::{Blake2b512, Digest};
 use futures::prelude::*;
 use rust_myscript::prelude::*;
 use std::collections::HashSet;
@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
 
         let fut = tokio::task::spawn(
             async move {
-                let mut digest = Blake2b::new();
+                let mut digest = Blake2b512::new();
                 let mut buf = [0u8; 4096];
                 let mut ret = Vec::with_capacity(entries.len());
                 'entry: for entry in entries {

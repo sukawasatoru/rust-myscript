@@ -1,4 +1,4 @@
-use digest::Digest;
+use digest::{Digest, FixedOutputReset};
 use rust_myscript::prelude::*;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -879,7 +879,7 @@ where
     }
 }
 
-fn digest_auth<D: Digest>(
+fn digest_auth<D: Digest + FixedOutputReset>(
     digest: &mut D,
     http_method: &str,
     username: &str,
@@ -890,7 +890,7 @@ fn digest_auth<D: Digest>(
     cnonce: &str,
     nc: &str,
 ) -> String {
-    digest.reset();
+    Digest::reset(digest);
 
     update_parameters_to_digest(digest, [username, realm, password]);
     let a1 = HexFormat(digest.finalize_reset().as_slice()).to_string();
@@ -902,7 +902,7 @@ fn digest_auth<D: Digest>(
     HexFormat(digest.finalize_reset().as_slice()).to_string()
 }
 
-fn digest_sess_auth<D: Digest>(
+fn digest_sess_auth<D: Digest + FixedOutputReset>(
     digest: &mut D,
     http_method: &str,
     username: &str,
@@ -913,7 +913,7 @@ fn digest_sess_auth<D: Digest>(
     cnonce: &str,
     nc: &str,
 ) -> String {
-    digest.reset();
+    Digest::reset(digest);
 
     update_parameters_to_digest(digest, [username, realm, password]);
     let a1_prefix = HexFormat(digest.finalize_reset().as_slice()).to_string();
@@ -928,7 +928,7 @@ fn digest_sess_auth<D: Digest>(
     HexFormat(digest.finalize_reset().as_slice()).to_string()
 }
 
-fn digest_2069<D: Digest>(
+fn digest_2069<D: Digest + FixedOutputReset>(
     digest: &mut D,
     http_method: &str,
     username: &str,
@@ -937,7 +937,7 @@ fn digest_2069<D: Digest>(
     nonce: &str,
     uri: &str,
 ) -> String {
-    digest.reset();
+    Digest::reset(digest);
 
     update_parameters_to_digest(digest, [username, realm, password]);
     let a1 = HexFormat(digest.finalize_reset().as_slice()).to_string();
@@ -949,7 +949,7 @@ fn digest_2069<D: Digest>(
     HexFormat(digest.finalize_reset().as_slice()).to_string()
 }
 
-fn digest_auth_int<D: Digest>(
+fn digest_auth_int<D: Digest + FixedOutputReset>(
     digest: &mut D,
     http_method: &str,
     username: &str,
@@ -961,13 +961,13 @@ fn digest_auth_int<D: Digest>(
     nc: &str,
     body: &[u8],
 ) -> String {
-    digest.reset();
+    Digest::reset(digest);
 
     update_parameters_to_digest(digest, [username, realm, password]);
     let a1 = HexFormat(digest.finalize_reset().as_slice()).to_string();
 
     if !body.is_empty() {
-        digest.update(body);
+        Digest::update(digest, body);
     }
     let body_hash = HexFormat(digest.finalize_reset().as_slice()).to_string();
 
