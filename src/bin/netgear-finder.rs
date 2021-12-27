@@ -714,7 +714,7 @@ mod tests {
         let mut data = vec![0u8; size as usize];
         assert_eq!(data.len(), 4);
 
-        let mut source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         (&source[..]).read(&mut data).unwrap();
 
         assert_eq!(data.len(), 4);
