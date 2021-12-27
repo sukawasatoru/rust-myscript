@@ -62,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut reader = std::io::BufReader::new(process.stdout.context("stdout")?);
     let mut s = String::new();
+    let mut previous_level = u8::MAX;
     loop {
         debug!("loop");
         s.clear();
@@ -81,7 +82,9 @@ async fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        if ps_info.battery_level <= notify_threshold {
+        if ps_info.battery_level <= notify_threshold && ps_info.battery_level < previous_level {
+            previous_level = ps_info.battery_level;
+
             if use_terminal_notifier {
                 notify_terminal(&context, &ps_info).ok();
             }
