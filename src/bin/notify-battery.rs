@@ -83,8 +83,6 @@ async fn main() -> anyhow::Result<()> {
         }
 
         if ps_info.battery_level <= notify_threshold && ps_info.battery_level < previous_level {
-            previous_level = ps_info.battery_level;
-
             if use_terminal_notifier {
                 notify_terminal(&context, &ps_info).ok();
             }
@@ -94,6 +92,8 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => info!(%e, "notify fail"),
             };
         }
+
+        previous_level = ps_info.battery_level;
     }
 
     info!("Bye");
