@@ -347,6 +347,14 @@ fn main() {
   API Level: 30
 "#,
         ),
+        OsInfo(
+            &["s", "12", "api31"],
+            r#"Android 12
+  Initial release: 2021
+  VERSION_CODES: S
+  API Level: 31
+"#,
+        ),
     ];
 
     for param in std::env::args().skip(1) {
