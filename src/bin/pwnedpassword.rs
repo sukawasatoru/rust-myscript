@@ -1,25 +1,25 @@
+use clap::{Parser, Subcommand};
 use digest::Digest;
 use rusqlite::params;
 use rust_myscript::prelude::*;
 use std::io::prelude::*;
 use std::sync::Arc;
-use structopt::StructOpt;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
 use tinytable_rs::{column, Column, Table};
 use tracing::info;
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 struct Opt {
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     cmd: Command,
 }
 
-#[derive(StructOpt)]
+#[derive(Subcommand)]
 enum Command {
     /// Check password
     Check {
-        #[structopt(subcommand)]
+        #[clap(subcommand)]
         cmd: CheckCommand,
     },
 
@@ -27,7 +27,7 @@ enum Command {
     Create,
 }
 
-#[derive(StructOpt)]
+#[derive(Subcommand)]
 enum CheckCommand {
     /// Use online backend for query password hash
     Net,
@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     info!("Hello");
 

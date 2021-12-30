@@ -1,3 +1,4 @@
+use clap::Parser;
 use regex::Regex;
 use rust_myscript::prelude::*;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -9,25 +10,22 @@ use std::{
     io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 use tracing::{debug, info, trace};
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "checkghossversion")]
+#[derive(Debug, Parser)]
+#[clap(name = "checkghossversion")]
 struct Opt {
-    #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
+    #[clap(short, long = "verbose", parse(from_occurrences))]
     verbose: u8,
 
-    #[structopt(
-        long = "query-per-repo",
-        help = "a querying number of the tag or releases",
-        default_value = "10"
-    )]
+    /// a querying number of the tag or releases
+    #[clap(long, default_value = "10")]
     query_per_repo: i32,
 
-    #[structopt(name = "RECIPE", help = "input", parse(from_os_str))]
+    /// input
+    #[clap(name = "RECIPE", parse(from_os_str))]
     filename: Option<PathBuf>,
 }
 
@@ -303,7 +301,7 @@ impl Default for GitHubConfig {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
     setup_log(opt.verbose);
     info!("Hello");
 

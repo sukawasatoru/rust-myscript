@@ -1,3 +1,4 @@
+use clap::{Parser, Subcommand};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -5,39 +6,31 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 use tracing::{debug, info};
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "trimhistory")]
+#[derive(Debug, Parser)]
+#[clap(name = "trimhistory")]
 struct Opt {
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     cmd: Command,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Debug, Subcommand)]
 enum Command {
-    #[structopt(name = "trim")]
+    #[clap(name = "trim")]
     Trim {
-        #[structopt(
-            short = "b",
-            long = "backup",
-            help = "Backup a FILE to specified path",
-            parse(from_os_str)
-        )]
+        /// Backup a FILE to specified path
+        #[clap(short, long = "backup", parse(from_os_str))]
         backup_path: Option<PathBuf>,
 
-        #[structopt(name = "FILE", help = "history file", parse(from_os_str))]
+        /// history file
+        #[clap(name = "FILE", parse(from_os_str))]
         history_path: PathBuf,
     },
-    #[structopt(name = "show")]
+    #[clap(name = "show")]
     Show {
-        #[structopt(
-            name = "NUM",
-            short = "n",
-            long = "lines",
-            help = "prints the first NUM lines"
-        )]
+        /// prints the first NUM lines
+        #[clap(name = "NUM", short, long = "lines")]
         num: Option<i32>,
     },
 }
@@ -83,7 +76,7 @@ fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
     debug!(?opt);
 
     match opt.cmd {

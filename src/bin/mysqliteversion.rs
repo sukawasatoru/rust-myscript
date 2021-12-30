@@ -1,23 +1,22 @@
+use clap::{ArgGroup, Parser};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::Connection;
 use rust_myscript::prelude::*;
 use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
-use structopt::clap::ArgGroup;
-use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
-#[structopt(group = ArgGroup::with_name("source").required(true))]
+#[derive(Debug, Parser)]
+#[clap(group = ArgGroup::new("source").required(true))]
 struct Opt {
-    #[structopt(short, long, parse(from_os_str), group = "source")]
+    #[clap(short, long, parse(from_os_str), group = "source")]
     database_path: Option<PathBuf>,
 
-    #[structopt(name = "USER-VERSION", group = "source")]
+    #[clap(name = "USER-VERSION", group = "source")]
     version_string: Option<String>,
 }
 
 fn main() -> Fallible<()> {
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
     println!("{:?}", opt);
 
     let version = if let Some(database_path) = opt.database_path {

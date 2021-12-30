@@ -1,24 +1,24 @@
+use clap::Parser;
 use futures::StreamExt;
 use rust_myscript::prelude::*;
 use std::sync::Arc;
-use structopt::StructOpt;
 use tracing::info;
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 struct Opt {
-    #[structopt(short, long)]
+    #[clap(short, long)]
     jobs: Option<usize>,
 
-    #[structopt(short, long)]
+    #[clap(short, long)]
     heavy: usize,
 
-    #[structopt(long, default_value = "1000000")]
+    #[clap(long, default_value = "1000000")]
     heavy_weight: usize,
 
-    #[structopt(short, long)]
+    #[clap(short, long)]
     light: usize,
 
-    #[structopt(long, default_value = "1000")]
+    #[clap(long, default_value = "1000")]
     light_weight: usize,
 }
 
@@ -29,7 +29,7 @@ async fn main() -> Fallible<()> {
 
     info!("Hello");
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     println!("work 1-0");
 

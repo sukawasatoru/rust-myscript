@@ -4,33 +4,24 @@
 //! git add .
 //! git commit -m "update"
 
-extern crate structopt;
-
-use std::{path::PathBuf, process::Command};
-
-use structopt::StructOpt;
+use clap::Parser;
+use std::path::PathBuf;
+use std::process::Command;
 use tracing::{debug, info};
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "backuphistory")]
+#[derive(Debug, Parser)]
+#[clap(name = "backuphistory")]
 struct Config {
-    #[structopt(
-        short = "s",
-        long = "source",
-        help = "e.g. -s ~/.bash_history",
-        parse(from_os_str)
-    )]
+    /// e.g. -s ~/.bash_history
+    #[clap(short, long, parse(from_os_str))]
     source: PathBuf,
 
-    #[structopt(
-        short = "t",
-        long = "target",
-        help = "e.g. -t ~/git-repo.git",
-        parse(from_os_str)
-    )]
+    /// e.g. -t ~/git-repo.git
+    #[clap(short, long, parse(from_os_str))]
     target: PathBuf,
 
-    #[structopt(short = "m", long = "message", help = "e.g. -m commit_message")]
+    /// e.g. -m commit_message
+    #[clap(short, long)]
     message: Option<String>,
 }
 
@@ -40,7 +31,7 @@ fn main() {
 
     info!("Hello");
 
-    let config: Config = Config::from_args();
+    let config: Config = Config::parse();
     debug!(?config);
     let source = config.source;
     let target = config.target;

@@ -1,4 +1,5 @@
 use blake2::{Blake2b512, Digest};
+use clap::{ArgGroup, Parser};
 use futures::prelude::*;
 use rust_myscript::prelude::*;
 use std::collections::HashSet;
@@ -6,8 +7,6 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::exit;
-use structopt::clap::ArgGroup;
-use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn, Instrument};
 
@@ -35,27 +34,27 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(group = ArgGroup::with_name("backup").required(true))]
+#[derive(Parser)]
+#[clap(group = ArgGroup::new("backup").required(true))]
 struct Opt {
     /// Do not write anything, just show what would be done
-    #[structopt(short = "n", long)]
+    #[clap(short = 'n', long)]
     dry_run: bool,
 
     /// Specifies the number of jobs to run simultaneously
-    #[structopt(short, long)]
+    #[clap(short, long)]
     jobs: Option<usize>,
 
     /// Target directory to deduplicate
-    #[structopt(short, long, parse(from_os_str))]
+    #[clap(short, long, parse(from_os_str))]
     target_dir: Vec<PathBuf>,
 
     /// Backup destination
-    #[structopt(short, long, parse(from_os_str), group = "backup")]
+    #[clap(short, long, parse(from_os_str), group = "backup")]
     backup_dir: Option<PathBuf>,
 
     /// Override file without backup
-    #[structopt(short, long, group = "backup")]
+    #[clap(short, long, group = "backup")]
     force: bool,
 }
 
@@ -82,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Hello");
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     if opt.backup_dir.is_none() && !opt.force {
         eprintln!("need to set backup directory or use force flag");

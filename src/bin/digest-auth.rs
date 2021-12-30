@@ -1,21 +1,21 @@
+use clap::Parser;
 use digest::{Digest, FixedOutputReset};
 use rust_myscript::prelude::*;
 use std::str::FromStr;
-use structopt::StructOpt;
 use tracing::{debug, info, warn};
 use warp::http::header;
 use warp::http::StatusCode;
 use warp::Filter;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 struct Opt {
-    #[structopt(long)]
+    #[clap(long)]
     password: String,
 
-    #[structopt(short, long)]
+    #[clap(short, long)]
     realm: String,
 
-    #[structopt(long)]
+    #[clap(long)]
     port: u16,
 }
 
@@ -317,7 +317,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Hello");
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     let filter_auth_header = warp::header::optional("Authorization");
     let ctx = std::sync::Arc::new(Context {

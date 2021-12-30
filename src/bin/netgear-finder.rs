@@ -1,27 +1,27 @@
+use clap::Parser;
 use std::fmt::Write;
 use std::io::prelude::*;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use structopt::StructOpt;
 use strum::{EnumIter, IntoEnumIterator};
 use tracing::{debug, info, trace, warn};
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 struct Opt {
     /// The colon separated style mac-address of the this PC
-    #[structopt(short, long, parse(try_from_str))]
+    #[clap(short, long, parse(try_from_str))]
     mac_address: MacAddress,
 
     /// A wait in milliseconds after sending datagrams
-    #[structopt(short, long, default_value = "0")]
+    #[clap(short, long, default_value = "0")]
     delay: u64,
 
     /// Stop after sending count datagrams
-    #[structopt(short, long, default_value = "1")]
+    #[clap(short, long, default_value = "1")]
     count: usize,
 
     /// Interactive mode for firewall
-    #[structopt(short, long)]
+    #[clap(short, long)]
     interactive: bool,
 }
 
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
     let mac_address = opt.mac_address;
 
     let create_server = |tx: tokio::sync::mpsc::Sender<(SocketAddr, DeviceInfo)>,

@@ -1,26 +1,26 @@
+use clap::Parser;
 use rust_myscript::prelude::*;
 use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-use structopt::StructOpt;
 use tracing::{debug, info, trace, warn};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 struct Opt {
     /// Starting address of the sequence
-    #[structopt(short, long, parse(try_from_str))]
+    #[clap(short, long, parse(try_from_str))]
     start_address: Ipv4Addr,
 
     /// Upper limit
-    #[structopt(short, long, parse(try_from_str))]
+    #[clap(short, long, parse(try_from_str))]
     end_address: Ipv4Addr,
 
     /// Maximum time in milliseconds
-    #[structopt(short, long, default_value = "100")]
+    #[clap(short, long, default_value = "100")]
     timeout: u64,
 
     /// Maximum number of concurrent http connection
-    #[structopt(short, long, default_value = "8")]
+    #[clap(short, long, default_value = "8")]
     parallel_http_connection: usize,
 }
 
@@ -91,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
         return debug_server::run().await;
     }
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     let start_oct = opt.start_address.octets();
     let end_oct = opt.end_address.octets();

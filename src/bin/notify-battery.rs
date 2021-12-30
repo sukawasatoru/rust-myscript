@@ -1,7 +1,7 @@
+use clap::Parser;
 use regex::Regex;
 use rust_myscript::prelude::*;
 use std::io::BufRead;
-use structopt::StructOpt;
 use tracing::{debug, info};
 
 struct Context {
@@ -20,14 +20,14 @@ struct PSInfo {
     charging: bool,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 struct Opt {
     /// Bot name for slack
-    #[structopt(long)]
+    #[clap(long)]
     slack_bot_name: String,
 
     /// Web hooks URL for slack
-    #[structopt(long)]
+    #[clap(long)]
     slack_notify_url: String,
 }
 
@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Hello");
 
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     let notify_threshold = 40;
     let context = Context {
