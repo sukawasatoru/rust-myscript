@@ -22,6 +22,10 @@ struct PSInfo {
 
 #[derive(Debug, Parser)]
 struct Opt {
+    /// The threshold of the battery level to notify that between 1 to 99
+    #[clap(short = 'l', long, default_value = "40", parse(try_from_str = parse_battery_threshold))]
+    battery_level_threshold: u8,
+
     /// Bot name for slack
     #[clap(long)]
     slack_bot_name: String,
@@ -40,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
     let opt: Opt = Opt::parse();
 
-    let notify_threshold = 40;
+    let notify_threshold = opt.battery_level_threshold;
     let context = Context {
         terminal_notifier_name: "terminal-notifier".to_owned(),
         slack_user_name: opt.slack_bot_name,
@@ -99,6 +103,13 @@ async fn main() -> anyhow::Result<()> {
     info!("Bye");
 
     Ok(())
+}
+
+fn parse_battery_threshold(value: &str) -> Result<u8, &'static str> {
+    match value.parse::<u8>() {
+        Ok(data @ 1..=99) => Ok(data),
+        _ => Err("expected 1..=99"),
+    }
 }
 
 fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
