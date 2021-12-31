@@ -28,7 +28,7 @@ tracing = "=0.1.29"
 trust-dns-resolver = "=0.20.3"
 
 [dependencies.clap]
-version = "3.0.0-rc.8"
+version = "3.0.0-rc.11"
 features = ["derive"]
 
 [dependencies.reqwest]
