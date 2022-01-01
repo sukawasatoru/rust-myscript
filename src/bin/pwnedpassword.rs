@@ -1,8 +1,26 @@
+/*
+ * Copyright 2020, 2021, 2022 sukawasatoru
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 use clap::{Parser, Subcommand};
 use digest::Digest;
+use directories::ProjectDirs;
 use rusqlite::params;
 use rust_myscript::prelude::*;
 use std::io::prelude::*;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
@@ -24,7 +42,15 @@ enum Command {
     },
 
     /// Create database for query password hash
-    Create,
+    Create {
+        /// File path. e.g. pwned-passwords-sha1-ordered-by-hash-v6.txt
+        #[clap(parse(from_os_str))]
+        file: PathBuf,
+
+        /// Database path
+        #[clap(long, parse(from_os_str))]
+        db: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -33,7 +59,11 @@ enum CheckCommand {
     Net,
 
     /// Use SQLite database for query password hash
-    Db,
+    Db {
+        /// Database path
+        #[clap(long, parse(from_os_str))]
+        db: Option<PathBuf>,
+    },
 }
 
 struct HexFormat<'a>(&'a [u8]);
@@ -76,17 +106,17 @@ impl Table for PasswordTable {
     }
 }
 
-const TEXT_NAME: &str = "pwned-passwords-sha1-ordered-by-hash-v6.txt";
-const DB_NAME: &str = "pwned-password-sha1.sqlite";
-
 // https://haveibeenpwned.com/passwords
-fn main() -> anyhow::Result<()> {
+fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
     let opt: Opt = Opt::parse();
 
     info!("Hello");
+
+    let project_dirs =
+        ProjectDirs::from("jp", "tinyport", "pwnedpassword").context("project_dirs")?;
 
     match opt.cmd {
         Command::Check { cmd } => {
@@ -103,6 +133,14 @@ fn main() -> anyhow::Result<()> {
             let mut input_lines = String::new();
             std::io::stdin().read_to_string(&mut input_lines).ok();
 
+            let db_path = if let CheckCommand::Db { ref db } = cmd {
+                db.as_ref()
+                    .map(|data| data.to_path_buf())
+                    .unwrap_or_else(|| default_db_path(&project_dirs))
+            } else {
+                PathBuf::new()
+            };
+
             let mut first_pwned = false;
             for entry in input_lines.split('\n') {
                 let plain_password = entry.trim();
@@ -111,7 +149,9 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 let pwned = match cmd {
-                    CheckCommand::Db => check_data_source_db(plain_password)?.is_some(),
+                    CheckCommand::Db { .. } => {
+                        check_data_source_db(&db_path, plain_password)?.is_some()
+                    }
                     CheckCommand::Net => check_data_source_net(plain_password)?.is_some(),
                 };
 
@@ -124,7 +164,9 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Command::Create => create_db()?,
+        Command::Create { file, db } => {
+            create_db(&db.unwrap_or_else(|| default_db_path(&project_dirs)), &file)?
+        }
     }
 
     info!("Bye");
@@ -132,17 +174,19 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_db() -> anyhow::Result<()> {
+fn create_db(db_path: &Path, file_path: &Path) -> Fallible<()> {
     // curl --head https://downloads.pwnedpasswords.com/passwords/pwned-passwords-sha1-ordered-by-hash-v6.7z
     // check etag.
     // 7z x 7z x pwned-passwords-sha1-ordered-by-hash-v6.7z
     // -> pwned-passwords-sha1-ordered-by-hash-v6.txt
     // -> 10GB (7z) -> 25GB (txt)
 
-    let mut reader = std::io::BufReader::new(std::fs::File::open(TEXT_NAME)?);
+    let mut reader = std::io::BufReader::new(std::fs::File::open(file_path)?);
     let mut buf = String::new();
 
-    let mut conn = rusqlite::Connection::open(DB_NAME)?;
+    std::fs::create_dir_all(db_path.parent().context("db_path.parent")?)
+        .context("create_dir_all(db_path)")?;
+    let mut conn = rusqlite::Connection::open(db_path)?;
     let password_table = PasswordTable::new();
     conn.execute(&password_table.create_sql(), [])?;
     let transaction = conn.transaction()?;
@@ -171,10 +215,10 @@ fn create_db() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn check_data_source_db(plain_password: &str) -> anyhow::Result<Option<()>> {
+fn check_data_source_db(db_path: &Path, plain_password: &str) -> anyhow::Result<Option<()>> {
     let password_hash =
         HexFormat(sha1::Sha1::digest(plain_password.as_bytes()).as_slice()).to_string();
-    let conn = rusqlite::Connection::open(DB_NAME)?;
+    let conn = rusqlite::Connection::open(db_path)?;
     let password_table = PasswordTable::new();
     let ret = conn
         .prepare_cached(&format!(
@@ -212,4 +256,8 @@ fn check_data_source_net(plain_password: &str) -> anyhow::Result<Option<()>> {
     }
 
     Ok(None)
+}
+
+fn default_db_path(project_dirs: &ProjectDirs) -> PathBuf {
+    project_dirs.data_dir().join("pwned-password-sha1.sqlite")
 }
