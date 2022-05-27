@@ -162,11 +162,11 @@ fn notify_terminal(context: &Context, ps_info: &PSInfo) -> anyhow::Result<()> {
 }
 
 async fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<String> {
-    debug!(payload = %generate_slack_payload(&context, &ps_info));
+    debug!(payload = %generate_slack_payload(context, ps_info));
     let ret = context
         .reqwest_client
         .post(&context.slack_notify_url)
-        .body(generate_slack_payload(&context, &ps_info))
+        .body(generate_slack_payload(context, ps_info))
         .header(
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_str("application/x-www-form-urlencoded")?,

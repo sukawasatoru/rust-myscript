@@ -342,7 +342,7 @@ async fn main() -> anyhow::Result<()> {
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm=MD5"#,
                             ctx.realm,
-                            uuid::Uuid::new_v4().to_string()
+                            uuid::Uuid::new_v4()
                         ),
                     )
                     .body("ng".to_owned());
@@ -405,7 +405,7 @@ async fn main() -> anyhow::Result<()> {
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth""#,
                             ctx.realm,
-                            uuid::Uuid::new_v4().to_string(),
+                            uuid::Uuid::new_v4(),
                             algorithm.rfc_name()
                         ),
                     )
@@ -510,7 +510,7 @@ async fn main() -> anyhow::Result<()> {
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm={}-sess, qop="auth""#,
                             ctx.realm,
-                            uuid::Uuid::new_v4().to_string(),
+                            uuid::Uuid::new_v4(),
                             algorithm.rfc_name()
                         ),
                     )
@@ -641,7 +641,7 @@ async fn main() -> anyhow::Result<()> {
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth-int""#,
                             ctx.realm,
-                            uuid::Uuid::new_v4().to_string(),
+                            uuid::Uuid::new_v4(),
                             algorithm.rfc_name()
                         ),
                     )
@@ -756,7 +756,7 @@ async fn main() -> anyhow::Result<()> {
                         format!(
                             r#"Digest realm="{}", nonce="{}", algorithm={}, qop="auth-int""#,
                             ctx.realm,
-                            uuid::Uuid::new_v4().to_string(),
+                            uuid::Uuid::new_v4(),
                             algorithm.rfc_name()
                         ),
                     )

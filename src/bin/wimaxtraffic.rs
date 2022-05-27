@@ -7,7 +7,7 @@ use std::{
 };
 use tracing::info;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 struct Config {
     host: Option<String>,
     token: Option<String>,
@@ -16,15 +16,6 @@ struct Config {
 impl Config {
     fn new() -> Config {
         Default::default()
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            host: Default::default(),
-            token: Default::default(),
-        }
     }
 }
 

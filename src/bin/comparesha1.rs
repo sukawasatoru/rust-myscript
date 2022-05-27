@@ -127,7 +127,7 @@ fn create_entity(input: &str) -> Result<Entity, IllegalFormatError> {
     }
 
     if ret.hash.is_empty() || ret.name.is_empty() {
-        return Err(IllegalFormatError::new(&input));
+        return Err(IllegalFormatError::new(input));
     }
 
     Ok(ret)

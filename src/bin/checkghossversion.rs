@@ -264,7 +264,7 @@ struct ResultRepository {
     url: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct Config {
     default_recipe: Option<PathBuf>,
     github: GitHubConfig,
@@ -276,26 +276,9 @@ impl Config {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            default_recipe: Default::default(),
-            github: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct GitHubConfig {
     oauth_token: String,
-}
-
-impl Default for GitHubConfig {
-    fn default() -> Self {
-        Self {
-            oauth_token: Default::default(),
-        }
-    }
 }
 
 #[tokio::main]
@@ -325,7 +308,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .expect("the recipe is required. specify via command line or config file");
     let oss_list = toml_loader
-        .load::<GithubOssConfig>(&recipe_path)
+        .load::<GithubOssConfig>(recipe_path)
         .expect("failed to open a recipe");
 
     trace!(?oss_list);
@@ -376,7 +359,7 @@ async fn main() -> anyhow::Result<()> {
                     .take(1)
                     .collect::<Vec<_>>()
                     .pop();
-                print_release(&release, &oss);
+                print_release(&release, oss);
             }
             CheckMethod::Tag => {
                 let result_list = result["data"][&repo_name]["refs"]["nodes"].take();
@@ -391,7 +374,7 @@ async fn main() -> anyhow::Result<()> {
                     .take(1)
                     .collect::<Vec<_>>()
                     .pop();
-                print_tag(&tag, &oss);
+                print_tag(&tag, oss);
             }
         }
     }

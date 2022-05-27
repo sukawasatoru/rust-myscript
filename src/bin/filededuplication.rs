@@ -18,16 +18,10 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
             return Ok(());
         }
 
-        let ret_first = write!(f, "{:X?}", self.0[0]);
-        if ret_first.is_err() {
-            return ret_first;
-        }
+        write!(f, "{:X?}", self.0[0])?;
 
         for entry in &self.0[1..self.0.len()] {
-            let entry_ret = write!(f, ":{:X?}", entry);
-            if entry_ret.is_err() {
-                return entry_ret;
-            }
+            write!(f, ":{:X?}", entry)?;
         }
 
         Ok(())

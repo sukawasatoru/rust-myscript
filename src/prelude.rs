@@ -1,6 +1,7 @@
 pub use anyhow::Context as _;
 pub use anyhow::Result as Fallible;
 
+#[derive(Default)]
 pub struct TomlLoader {
     buf: String,
 }
@@ -19,13 +20,5 @@ impl TomlLoader {
         self.buf.clear();
         std::io::BufReader::new(std::fs::File::open(path)?).read_to_string(&mut self.buf)?;
         Ok(toml::from_str::<T>(&self.buf)?)
-    }
-}
-
-impl Default for TomlLoader {
-    fn default() -> Self {
-        Self {
-            buf: Default::default(),
-        }
     }
 }
