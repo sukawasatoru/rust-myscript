@@ -340,7 +340,7 @@ fn main() {
 "#,
         ),
         OsInfo(
-            &["r", "11", "api30"],
+            &["r", "11", "api30", "30"],
             r#"Android 11
   Initial release: 2020
   VERSION_CODES: R
@@ -348,11 +348,19 @@ fn main() {
 "#,
         ),
         OsInfo(
-            &["s", "12", "api31"],
+            &["s", "12", "api31", "31"],
             r#"Android 12
   Initial release: 2021
   VERSION_CODES: S
   API Level: 31
+"#,
+        ),
+        OsInfo(
+            &["s", "12", "12l", "api32", "32"],
+            r#"Android 12L
+  Initial release: 2022
+  VERSION_CODES: S
+  API Level: 32
 "#,
         ),
     ];
