@@ -1527,8 +1527,8 @@ dependencies = [
 
 [[package]]
 name = "tinytable-rs"
-version = "0.2.0"
-source = "git+https://github.com/sukawasatoru/tinytable-rs.git?tag=v0.3.0#2cb51ff60d1d4aea8959cc1a1ee6c79377c8cc94"
+version = "0.3.2"
+source = "git+https://github.com/sukawasatoru/tinytable-rs.git?tag=v0.3.2#e4c4ab55ea23ca681e6fedf8de69bd42ea0c978d"
 
 [[package]]
 name = "tinyvec"
