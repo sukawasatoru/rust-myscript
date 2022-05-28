@@ -5,3 +5,4 @@ updates:
   schedule:
     interval: daily
     timezone: Asia/Tokyo
+  open-pull-requests-limit: 30
