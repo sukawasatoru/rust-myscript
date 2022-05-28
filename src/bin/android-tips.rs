@@ -363,6 +363,14 @@ fn main() {
   API Level: 32
 "#,
         ),
+        OsInfo(
+            &["t", "13", "tiramisu", "tira", "api33", "33"],
+            r#"Android 13
+  Initial release: N/A
+  VERSION_CODES: T
+  API Level: 33
+"#,
+        ),
     ];
 
     for param in std::env::args().skip(1) {
