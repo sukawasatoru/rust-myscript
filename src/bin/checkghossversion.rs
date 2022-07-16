@@ -4,8 +4,8 @@ use rust_myscript::prelude::*;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fmt::{self, Write as FmtWrite};
 use std::{
-    fmt,
     fs::{self, File},
     io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
@@ -392,13 +392,14 @@ fn generate_body(oss_list: &[GithubOss], dry_run: bool, num: i32) -> anyhow::Res
             CheckMethod::Release => "Rel",
             CheckMethod::Tag => "Tag",
         };
-        query_body.push_str(&format!(
+        write!(
+            query_body,
             r#"{}: repository(owner: "{}", name: "{}") {{ ...{} }}"#,
             regex.replace_all(&github_oss.repo, "_"),
             github_oss.owner,
             github_oss.name,
             fragment_type
-        ));
+        )?;
     }
 
     Ok(json!({

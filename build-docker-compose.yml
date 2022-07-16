@@ -6,4 +6,4 @@ services:
       context: .
       dockerfile: build.dockerfile
       args:
-        RUST_VERSION: 1.45.2
+        RUST_VERSION: 1.62.0
