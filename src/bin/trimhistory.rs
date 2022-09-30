@@ -63,12 +63,7 @@ impl Statistics {
     }
 
     fn find_command(&self, command: &str) -> Option<usize> {
-        for i in 0..self.entries.len() {
-            if self.entries[i].command == command {
-                return Some(i);
-            }
-        }
-        None
+        (0..self.entries.len()).find(|&i| self.entries[i].command == command)
     }
 }
 

@@ -988,6 +988,7 @@ struct DigestHeaderParameters {
     nc: Option<String>,
     qop: Option<Qop>,
     response: String,
+    #[allow(dead_code)]
     algorithm: Option<String>,
 }
 
