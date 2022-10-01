@@ -10,24 +10,6 @@ use std::process::exit;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn, Instrument};
 
-struct HexFormat<'a>(&'a [u8]);
-
-impl<'a> std::fmt::Display for HexFormat<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.is_empty() {
-            return Ok(());
-        }
-
-        write!(f, "{:X?}", self.0[0])?;
-
-        for entry in &self.0[1..self.0.len()] {
-            write!(f, ":{:X?}", entry)?;
-        }
-
-        Ok(())
-    }
-}
-
 #[derive(Parser)]
 #[clap(group = ArgGroup::new("backup").required(true))]
 struct Opt {

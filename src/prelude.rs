@@ -22,3 +22,21 @@ impl TomlLoader {
         Ok(toml::from_str::<T>(&self.buf)?)
     }
 }
+
+pub struct HexFormat<'a>(pub &'a [u8]);
+
+impl<'a> std::fmt::Display for HexFormat<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+
+        write!(f, "{:02X?}", self.0[0])?;
+
+        for entry in &self.0[1..self.0.len()] {
+            write!(f, ":{:02X?}", entry)?;
+        }
+
+        Ok(())
+    }
+}

@@ -667,6 +667,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9b7d56ba4a8344d6be9729995e6b06f928af29998cdf79fe390cbf6b1fee838"
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1194,6 +1200,7 @@ dependencies = [
  "serde_json",
  "sha-1",
  "sha2",
+ "sha3",
  "strum",
  "thiserror",
  "tinytable-rs",
@@ -1202,6 +1209,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trust-dns-resolver",
+ "url",
  "uuid",
  "warp",
 ]
@@ -1374,6 +1382,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2904bea16a1ae962b483322a1c7b81d976029203aea1f461e51cd7705db7ba9"
+dependencies = [
+ "digest",
+ "keccak",
 ]
 
 [[package]]
@@ -1834,6 +1852,7 @@ dependencies = [
  "form_urlencoded",
  "idna 0.3.0",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

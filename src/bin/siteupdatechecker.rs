@@ -1,0 +1,330 @@
+/*
+ * Copyright 2022 sukawasatoru
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use anyhow::anyhow;
+use futures::future::BoxFuture;
+use reqwest::StatusCode;
+use rust_myscript::prelude::*;
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_224};
+use std::fmt::{Display, Formatter};
+use std::io::prelude::*;
+use tracing::info;
+use url::Url;
+
+#[derive(Deserialize, Serialize)]
+struct SitePreferences {
+    sites: Vec<Site>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Site {
+    title: String,
+    uri: Url,
+    check_method: CheckMethod,
+    hash: Option<String>,
+    date: Option<String>,
+    etag: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+enum CheckMethod {
+    Head,
+    Hash,
+}
+
+struct CheckOk {
+    updated: bool,
+    site: Site,
+}
+
+#[derive(Debug)]
+struct CheckError {
+    site: Site,
+    source: anyhow::Error,
+}
+
+impl Display for CheckError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to check site: {}", self.site.title)
+    }
+}
+
+impl std::error::Error for CheckError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&*self.source)
+    }
+}
+
+#[tokio::main]
+async fn main() -> Fallible<()> {
+    tracing_subscriber::fmt::init();
+
+    info!("hello");
+
+    let mut site_prefs_string = String::new();
+    std::io::stdin().read_to_string(&mut site_prefs_string)?;
+    let site_prefs = toml::from_str::<SitePreferences>(&site_prefs_string)?;
+
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("siteupdatechecker")
+        .build()?;
+
+    let mut futs = Vec::<BoxFuture<Result<CheckOk, CheckError>>>::new();
+    for site in site_prefs.sites {
+        match site.check_method {
+            CheckMethod::Head => futs.push(Box::pin(check_site_head(client.clone(), site))),
+            CheckMethod::Hash => futs.push(Box::pin(check_site_hash(client.clone(), site))),
+        }
+    }
+
+    let ret = futures::future::join_all(futs).await;
+    let mut new_prefs = Vec::with_capacity(ret.len());
+    let mut updated_sites = vec![];
+    let mut not_modified_sites = vec![];
+    let mut error_sites = vec![];
+    for ret_check in ret {
+        match ret_check {
+            Ok(data) => match data.updated {
+                true => {
+                    info!("updated: {}", &data.site.title);
+                    new_prefs.push(data.site);
+                    updated_sites.push(new_prefs.len() - 1);
+                }
+                false => {
+                    info!("not modified: {}", &data.site.title);
+                    new_prefs.push(data.site);
+                    not_modified_sites.push(new_prefs.len() - 1);
+                }
+            },
+            Err(e) => {
+                info!(?e.source, "error caused: {}", &e.site.title);
+                new_prefs.push(e.site);
+                error_sites.push((new_prefs.len() - 1, e.source));
+            }
+        }
+    }
+
+    println!("# updated:");
+    if updated_sites.is_empty() {
+        println!("#   (none)");
+    } else {
+        for new_prefs_index in updated_sites {
+            println!(
+                "#   {}",
+                new_prefs
+                    .get(new_prefs_index)
+                    .expect("unexpected updated site index")
+                    .title
+            );
+        }
+    }
+
+    println!("#");
+    println!("# not modified:");
+    if not_modified_sites.is_empty() {
+        println!("#   (none)");
+    } else {
+        for new_prefs_index in not_modified_sites {
+            println!(
+                "#   {}",
+                new_prefs
+                    .get(new_prefs_index)
+                    .expect("unexpected not modified index")
+                    .title
+            );
+        }
+    }
+
+    println!("#");
+    println!("# error:");
+    if error_sites.is_empty() {
+        println!("#   (none)");
+    } else {
+        for (new_prefs_index, e) in error_sites {
+            let error_site = new_prefs
+                .get(new_prefs_index)
+                .expect("unexpected error site index");
+            println!("#   {}\n#     reason: {}", error_site.title, &e);
+        }
+    }
+
+    // TODO: notify to slack.
+
+    let new_prefs_string = toml::to_string(&SitePreferences { sites: new_prefs })?;
+    println!("#");
+    println!("# new config:");
+    println!("{}", new_prefs_string);
+
+    info!("bye");
+
+    Ok(())
+}
+
+async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk, CheckError> {
+    use reqwest::header;
+    use reqwest::header::ToStrError;
+
+    let mut headers = header::HeaderMap::new();
+    if let Some(ref if_modified_since) = site.date {
+        match if_modified_since.parse() {
+            Ok(data) => {
+                headers.insert(header::IF_MODIFIED_SINCE, data);
+            }
+            Err(e) => {
+                return Err(CheckError {
+                    site,
+                    source: anyhow!(e).context("failed to parse a date string to a header value"),
+                })
+            }
+        }
+    }
+    if let Some(ref etag) = site.etag {
+        match etag.parse() {
+            Ok(data) => {
+                headers.insert(header::IF_NONE_MATCH, data);
+            }
+            Err(e) => {
+                return Err(CheckError {
+                    site,
+                    source: anyhow!(e).context("failed to parse a etag string to a header value"),
+                })
+            }
+        }
+    }
+
+    let response = match client.head(site.uri.as_str()).headers(headers).send().await {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(CheckError {
+                site,
+                source: anyhow!(e).context("failed to send request"),
+            })
+        }
+    };
+
+    let get_header_value = |response: &reqwest::Response,
+                            key: &header::HeaderName|
+     -> Result<Option<String>, ToStrError> {
+        response
+            .headers()
+            .get(key)
+            .map(|data| data.to_str())
+            .map_or(Ok(None), |data| data.map(|data| Some(data.to_string())))
+    };
+
+    let status_code = response.status();
+
+    match status_code {
+        StatusCode::OK => Ok(CheckOk {
+            updated: true,
+            site: Site {
+                date: match get_header_value(&response, &header::DATE) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(CheckError {
+                            site,
+                            source: anyhow!(e).context("failed to parse a date to string (200)"),
+                        })
+                    }
+                },
+                etag: match get_header_value(&response, &header::ETAG) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(CheckError {
+                            site,
+                            source: anyhow!(e).context("failed to parse a etag to string (200)"),
+                        })
+                    }
+                },
+                ..site
+            },
+        }),
+        StatusCode::NOT_MODIFIED => Ok(CheckOk {
+            updated: false,
+            site: Site {
+                date: match get_header_value(&response, &header::DATE) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(CheckError {
+                            site,
+                            source: anyhow!(e).context("failed to parse a date to string (304)"),
+                        })
+                    }
+                },
+                etag: match get_header_value(&response, &header::ETAG) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(CheckError {
+                            site,
+                            source: anyhow!(e).context("failed to parse a etag to string (304)"),
+                        })
+                    }
+                },
+                ..site
+            },
+        }),
+        _ => Err(CheckError {
+            site,
+            source: anyhow!("unexpected status code: {}", status_code.as_u16()),
+        }),
+    }
+}
+
+async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk, CheckError> {
+    let response = match client.get(site.uri.as_str()).send().await {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(CheckError {
+                site,
+                source: anyhow!(e).context("failed to send request"),
+            });
+        }
+    };
+
+    let status_code = response.status();
+    if status_code != StatusCode::OK {
+        return Err(CheckError {
+            site,
+            source: anyhow!("unexpected status code: {}", status_code.as_u16()),
+        });
+    }
+
+    let response_bytes = match response.bytes().await {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(CheckError {
+                site,
+                source: anyhow!(e).context("failed to parse response"),
+            })
+        }
+    };
+
+    let response_hash = Sha3_224::digest(&response_bytes);
+    let response_hash_string = HexFormat(response_hash.as_ref()).to_string();
+    let updated = match &site.hash {
+        Some(data) => data != &response_hash_string,
+        None => true,
+    };
+
+    Ok(CheckOk {
+        updated,
+        site: Site {
+            hash: Some(response_hash_string),
+            ..site
+        },
+    })
+}
