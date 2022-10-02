@@ -9,13 +9,13 @@ use warp::Filter;
 
 #[derive(Debug, Parser)]
 struct Opt {
-    #[clap(long)]
+    #[arg(long)]
     password: String,
 
-    #[clap(short, long)]
+    #[arg(short, long)]
     realm: String,
 
-    #[clap(long)]
+    #[arg(long)]
     port: u16,
 }
 

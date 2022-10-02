@@ -15,17 +15,17 @@ use tracing::{debug, info, trace};
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 
 #[derive(Debug, Parser)]
-#[clap(name = "checkghossversion")]
+#[command(name = "checkghossversion")]
 struct Opt {
-    #[clap(short, long = "verbose", parse(from_occurrences))]
+    #[arg(short, long = "verbose")]
     verbose: u8,
 
     /// a querying number of the tag or releases
-    #[clap(long, default_value = "10")]
+    #[arg(long, default_value = "10")]
     query_per_repo: i32,
 
     /// input
-    #[clap(name = "RECIPE", parse(from_os_str))]
+    #[arg(name = "RECIPE")]
     filename: Option<PathBuf>,
 }
 

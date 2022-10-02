@@ -81,15 +81,15 @@ impl std::error::Error for CheckError {
 #[derive(Parser)]
 struct Opt {
     /// Bot name for notifying to slack
-    #[clap(long, env, default_value = "siteupdatechecker")]
+    #[arg(long, env, default_value = "siteupdatechecker")]
     slack_notify_bot_name: String,
 
     /// Channel ID to notify channel
-    #[clap(long, env)]
+    #[arg(long, env)]
     slack_notify_channel: String,
 
     /// Web hooks URL for slack
-    #[clap(long, env)]
+    #[arg(long, env)]
     slack_notify_url: String,
 }
 

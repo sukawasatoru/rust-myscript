@@ -29,7 +29,7 @@ use tracing::info;
 
 #[derive(Parser)]
 struct Opt {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     cmd: Command,
 }
 
@@ -37,18 +37,17 @@ struct Opt {
 enum Command {
     /// Check password
     Check {
-        #[clap(subcommand)]
+        #[command(subcommand)]
         cmd: CheckCommand,
     },
 
     /// Create database for query password hash
     Create {
         /// File path. e.g. pwned-passwords-sha1-ordered-by-hash-v6.txt
-        #[clap(parse(from_os_str))]
         file: PathBuf,
 
         /// Database path
-        #[clap(long, parse(from_os_str))]
+        #[arg(long)]
         db: Option<PathBuf>,
     },
 }
@@ -61,7 +60,7 @@ enum CheckCommand {
     /// Use SQLite database for query password hash
     Db {
         /// Database path
-        #[clap(long, parse(from_os_str))]
+        #[arg(long)]
         db: Option<PathBuf>,
     },
 }

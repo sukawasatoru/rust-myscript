@@ -10,18 +10,18 @@ use std::process::Command;
 use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
-#[clap(name = "backuphistory")]
+#[command(name = "backuphistory")]
 struct Config {
     /// e.g. -s ~/.bash_history
-    #[clap(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     source: PathBuf,
 
     /// e.g. -t ~/git-repo.git
-    #[clap(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     target: PathBuf,
 
     /// e.g. -m commit_message
-    #[clap(short, long)]
+    #[arg(short, long)]
     message: Option<String>,
 }
 

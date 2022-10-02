@@ -9,22 +9,23 @@ use tracing::{debug, info, trace, warn};
 #[derive(Parser)]
 struct Opt {
     /// The colon separated style mac-address of the this PC
-    #[clap(short, long, parse(try_from_str))]
+    #[arg(short, long)]
     mac_address: MacAddress,
 
     /// A wait in milliseconds after sending datagrams
-    #[clap(short, long, default_value = "0")]
+    #[arg(short, long, default_value = "0")]
     delay: u64,
 
     /// Stop after sending count datagrams
-    #[clap(short, long, default_value = "1")]
+    #[arg(short, long, default_value = "1")]
     count: usize,
 
     /// Interactive mode for firewall
-    #[clap(short, long)]
+    #[arg(short, long)]
     interactive: bool,
 }
 
+#[derive(Clone)]
 struct MacAddress([u8; 6]);
 
 impl std::str::FromStr for MacAddress {

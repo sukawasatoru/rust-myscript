@@ -11,26 +11,26 @@ use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn, Instrument};
 
 #[derive(Parser)]
-#[clap(group = ArgGroup::new("backup").required(true))]
+#[command(group = ArgGroup::new("backup").required(true))]
 struct Opt {
     /// Do not write anything, just show what would be done
-    #[clap(short = 'n', long)]
+    #[arg(short = 'n', long)]
     dry_run: bool,
 
     /// Specifies the number of jobs to run simultaneously
-    #[clap(short, long)]
+    #[arg(short, long)]
     jobs: Option<usize>,
 
     /// Target directory to deduplicate
-    #[clap(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     target_dir: Vec<PathBuf>,
 
     /// Backup destination
-    #[clap(short, long, parse(from_os_str), group = "backup")]
+    #[arg(short, long, group = "backup")]
     backup_dir: Option<PathBuf>,
 
     /// Override file without backup
-    #[clap(short, long, group = "backup")]
+    #[arg(short, long, group = "backup")]
     force: bool,
 }
 

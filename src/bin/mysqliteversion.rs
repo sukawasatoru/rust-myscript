@@ -6,12 +6,12 @@ use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[clap(group = ArgGroup::new("source").required(true))]
+#[command(group = ArgGroup::new("source").required(true))]
 struct Opt {
-    #[clap(short, long, parse(from_os_str), group = "source")]
+    #[arg(short, long, group = "source")]
     database_path: Option<PathBuf>,
 
-    #[clap(name = "USER-VERSION", group = "source")]
+    #[arg(name = "USER-VERSION", group = "source")]
     version_string: Option<String>,
 }
 

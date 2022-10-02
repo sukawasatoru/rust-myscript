@@ -8,19 +8,19 @@ use tracing::{debug, info, trace, warn};
 #[derive(Debug, Parser)]
 struct Opt {
     /// Starting address of the sequence
-    #[clap(short, long, parse(try_from_str))]
+    #[arg(short, long)]
     start_address: Ipv4Addr,
 
     /// Upper limit
-    #[clap(short, long, parse(try_from_str))]
+    #[arg(short, long)]
     end_address: Ipv4Addr,
 
     /// Maximum time in milliseconds
-    #[clap(short, long, default_value = "100")]
+    #[arg(short, long, default_value = "100")]
     timeout: u64,
 
     /// Maximum number of concurrent http connection
-    #[clap(short, long, default_value = "8")]
+    #[arg(short, long, default_value = "8")]
     parallel_http_connection: usize,
 }
 

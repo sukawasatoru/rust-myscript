@@ -23,15 +23,15 @@ struct PSInfo {
 #[derive(Debug, Parser)]
 struct Opt {
     /// The threshold of the battery level to notify that between 1 to 99
-    #[clap(short = 'l', long, default_value = "40", parse(try_from_str = parse_battery_threshold))]
+    #[arg(short = 'l', long, default_value = "40", value_parser = parse_battery_threshold)]
     battery_level_threshold: u8,
 
     /// Bot name for slack
-    #[clap(long)]
+    #[arg(long)]
     slack_bot_name: String,
 
     /// Web hooks URL for slack
-    #[clap(long)]
+    #[arg(long)]
     slack_notify_url: String,
 }
 

@@ -6,19 +6,19 @@ use tracing::info;
 
 #[derive(Parser)]
 struct Opt {
-    #[clap(short, long)]
+    #[arg(short, long)]
     jobs: Option<usize>,
 
-    #[clap(short, long)]
+    #[arg(short, long)]
     heavy: usize,
 
-    #[clap(long, default_value = "1000000")]
+    #[arg(long, default_value = "1000000")]
     heavy_weight: usize,
 
-    #[clap(short, long)]
+    #[arg(short, long)]
     light: usize,
 
-    #[clap(long, default_value = "1000")]
+    #[arg(long, default_value = "1000")]
     light_weight: usize,
 }
 

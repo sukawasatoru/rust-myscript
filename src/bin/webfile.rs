@@ -5,19 +5,19 @@ use std::path::PathBuf;
 #[derive(Parser)]
 struct Opt {
     /// Port number
-    #[clap(short, long, default_value = "38080")]
+    #[arg(short, long, default_value = "38080")]
     port: u16,
 
     /// Path of the fullchain.pem / This flag requires "key-path" flag
-    #[clap(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     cert_path: Option<PathBuf>,
 
     /// Path of the privkey.pem / This flag requires "cert-path" flag
-    #[clap(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     key_path: Option<PathBuf>,
 
     /// Directory to root
-    #[clap(parse(from_os_str), default_value = ".")]
+    #[arg(default_value = ".")]
     dir: PathBuf,
 }
 

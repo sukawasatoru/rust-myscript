@@ -9,28 +9,27 @@ use std::{
 use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
-#[clap(name = "trimhistory")]
 struct Opt {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     cmd: Command,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    #[clap(name = "trim")]
+    #[command(name = "trim")]
     Trim {
         /// Backup a FILE to specified path
-        #[clap(short, long = "backup", parse(from_os_str))]
+        #[arg(short, long = "backup")]
         backup_path: Option<PathBuf>,
 
         /// history file
-        #[clap(name = "FILE", parse(from_os_str))]
+        #[arg(name = "FILE")]
         history_path: PathBuf,
     },
-    #[clap(name = "show")]
+    #[command(name = "show")]
     Show {
         /// prints the first NUM lines
-        #[clap(name = "NUM", short, long = "lines")]
+        #[arg(name = "NUM", short, long = "lines")]
         num: Option<i32>,
     },
 }
