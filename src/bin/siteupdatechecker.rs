@@ -71,6 +71,7 @@ impl Display for CheckError {
     }
 }
 
+// implement manually for avoiding Site implementation.
 impl std::error::Error for CheckError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&*self.source)
@@ -368,6 +369,7 @@ fn generate_slack_payload(
     use serde_json::json;
 
     let mut blocks = vec![];
+    let mut text_source = vec![];
 
     if !updated_sites.is_empty() {
         blocks.push(json!({
@@ -391,10 +393,13 @@ fn generate_slack_payload(
                 },
             }));
         }
+
+        text_source.push(format!("{} updates", updated_sites.len()));
     }
 
     if !updated_sites.is_empty() && !error_sites.is_empty() {
         blocks.push(json!({ "type": "divider" }));
+        text_source.push(", ".into());
     }
 
     if !error_sites.is_empty() {
@@ -420,6 +425,8 @@ fn generate_slack_payload(
                 },
             }));
         }
+
+        text_source.push(format!("{} errors:", error_sites.len()));
     }
 
     let payload = json!({
@@ -427,6 +434,7 @@ fn generate_slack_payload(
         "icon_emoji": ":new:",
         "username": bot_name,
         "blocks": blocks,
+        "text": text_source.join(""),
     });
     Ok(serde_json::to_string(&payload)?)
 }
