@@ -15,25 +15,33 @@
  */
 
 use anyhow::anyhow;
+use clap::Parser;
 use futures::future::BoxFuture;
-use reqwest::StatusCode;
+use reqwest::{header, StatusCode};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_224};
 use std::fmt::{Display, Formatter};
 use std::io::prelude::*;
+use std::rc::Rc;
 use tracing::info;
 use url::Url;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 struct SitePreferences {
     sites: Vec<Site>,
+}
+
+#[derive(Serialize)]
+struct SitePrefsForSerialize {
+    sites: Vec<Rc<Site>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Site {
     title: String,
     uri: Url,
+    uri_open: Option<Url>,
     check_method: CheckMethod,
     hash: Option<String>,
     date: Option<String>,
@@ -69,11 +77,29 @@ impl std::error::Error for CheckError {
     }
 }
 
+/// Update checker for web site
+#[derive(Parser)]
+struct Opt {
+    /// Bot name for notifying to slack
+    #[clap(long, env, default_value = "siteupdatechecker")]
+    slack_notify_bot_name: String,
+
+    /// Channel ID to notify channel
+    #[clap(long, env)]
+    slack_notify_channel: String,
+
+    /// Web hooks URL for slack
+    #[clap(long, env)]
+    slack_notify_url: String,
+}
+
 #[tokio::main]
 async fn main() -> Fallible<()> {
     tracing_subscriber::fmt::init();
 
     info!("hello");
+
+    let opt: Opt = Opt::parse();
 
     let mut site_prefs_string = String::new();
     std::io::stdin().read_to_string(&mut site_prefs_string)?;
@@ -101,19 +127,22 @@ async fn main() -> Fallible<()> {
             Ok(data) => match data.updated {
                 true => {
                     info!("updated: {}", &data.site.title);
-                    new_prefs.push(data.site);
-                    updated_sites.push(new_prefs.len() - 1);
+                    let site = Rc::new(data.site);
+                    new_prefs.push(site.clone());
+                    updated_sites.push(site);
                 }
                 false => {
                     info!("not modified: {}", &data.site.title);
-                    new_prefs.push(data.site);
-                    not_modified_sites.push(new_prefs.len() - 1);
+                    let site = Rc::new(data.site);
+                    new_prefs.push(site.clone());
+                    not_modified_sites.push(site);
                 }
             },
             Err(e) => {
                 info!(?e.source, "error caused: {}", &e.site.title);
-                new_prefs.push(e.site);
-                error_sites.push((new_prefs.len() - 1, e.source));
+                let site = Rc::new(e.site);
+                new_prefs.push(site.clone());
+                error_sites.push((site, e.source));
             }
         }
     }
@@ -122,14 +151,8 @@ async fn main() -> Fallible<()> {
     if updated_sites.is_empty() {
         println!("#   (none)");
     } else {
-        for new_prefs_index in updated_sites {
-            println!(
-                "#   {}",
-                new_prefs
-                    .get(new_prefs_index)
-                    .expect("unexpected updated site index")
-                    .title
-            );
+        for site in updated_sites.iter() {
+            println!("#   {}", site.title);
         }
     }
 
@@ -138,14 +161,8 @@ async fn main() -> Fallible<()> {
     if not_modified_sites.is_empty() {
         println!("#   (none)");
     } else {
-        for new_prefs_index in not_modified_sites {
-            println!(
-                "#   {}",
-                new_prefs
-                    .get(new_prefs_index)
-                    .expect("unexpected not modified index")
-                    .title
-            );
+        for site in not_modified_sites.iter() {
+            println!("#   {}", site.title);
         }
     }
 
@@ -154,20 +171,34 @@ async fn main() -> Fallible<()> {
     if error_sites.is_empty() {
         println!("#   (none)");
     } else {
-        for (new_prefs_index, e) in error_sites {
-            let error_site = new_prefs
-                .get(new_prefs_index)
-                .expect("unexpected error site index");
-            println!("#   {}\n#     reason: {}", error_site.title, &e);
+        for (site, e) in error_sites.iter() {
+            println!("#   {}\n#     reason: {}", site.title, &e);
         }
     }
 
-    // TODO: notify to slack.
-
-    let new_prefs_string = toml::to_string(&SitePreferences { sites: new_prefs })?;
+    let new_site_prefs = SitePrefsForSerialize { sites: new_prefs };
+    let new_prefs_string = toml::to_string(&new_site_prefs)?;
     println!("#");
     println!("# new config:");
     println!("{}", new_prefs_string);
+
+    if !updated_sites.is_empty() || !error_sites.is_empty() {
+        info!("notify to slack");
+        let ret_slack = client
+            .post(&opt.slack_notify_url)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(generate_slack_payload(
+                &opt.slack_notify_bot_name,
+                &opt.slack_notify_channel,
+                &updated_sites,
+                &error_sites,
+            )?)
+            .send()
+            .await?;
+        info!(?ret_slack);
+        let ret_slack_response_text = ret_slack.text().await?;
+        info!(ret_slack_response_text);
+    }
 
     info!("bye");
 
@@ -175,7 +206,6 @@ async fn main() -> Fallible<()> {
 }
 
 async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk, CheckError> {
-    use reqwest::header;
     use reqwest::header::ToStrError;
 
     let mut headers = header::HeaderMap::new();
@@ -327,4 +357,76 @@ async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk,
             ..site
         },
     })
+}
+
+fn generate_slack_payload(
+    bot_name: &str,
+    channel_id: &str,
+    updated_sites: &[Rc<Site>],
+    error_sites: &[(Rc<Site>, anyhow::Error)],
+) -> Fallible<String> {
+    use serde_json::json;
+
+    let mut blocks = vec![];
+
+    if !updated_sites.is_empty() {
+        blocks.push(json!({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "Updated",
+            },
+        }));
+
+        for site in updated_sites {
+            blocks.push(json!({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": format!(
+                        "<{}|{}>",
+                        site.uri_open.as_ref().unwrap_or(&site.uri),
+                        site.title,
+                    ),
+                },
+            }));
+        }
+    }
+
+    if !updated_sites.is_empty() && !error_sites.is_empty() {
+        blocks.push(json!({ "type": "divider" }));
+    }
+
+    if !error_sites.is_empty() {
+        blocks.push(json!({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "Error",
+            },
+        }));
+
+        for (site, e) in error_sites {
+            blocks.push(json!({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": format!(
+                        "<{}|{}>\n>{}",
+                        site.uri_open.as_ref().unwrap_or(&site.uri),
+                        site.title,
+                        e,
+                    ),
+                },
+            }));
+        }
+    }
+
+    let payload = json!({
+        "channel": channel_id,
+        "icon_emoji": ":new:",
+        "username": bot_name,
+        "blocks": blocks,
+    });
+    Ok(serde_json::to_string(&payload)?)
 }
