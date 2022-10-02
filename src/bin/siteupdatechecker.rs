@@ -44,7 +44,7 @@ struct Site {
     uri_open: Option<Url>,
     check_method: CheckMethod,
     hash: Option<String>,
-    date: Option<String>,
+    last_modified: Option<String>,
     etag: Option<String>,
 }
 
@@ -209,7 +209,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
     use reqwest::header::ToStrError;
 
     let mut headers = header::HeaderMap::new();
-    if let Some(ref if_modified_since) = site.date {
+    if let Some(ref if_modified_since) = site.last_modified {
         match if_modified_since.parse() {
             Ok(data) => {
                 headers.insert(header::IF_MODIFIED_SINCE, data);
@@ -262,7 +262,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
         StatusCode::OK => Ok(CheckOk {
             updated: true,
             site: Site {
-                date: match get_header_value(&response, &header::DATE) {
+                last_modified: match get_header_value(&response, &header::LAST_MODIFIED) {
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
@@ -286,7 +286,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
         StatusCode::NOT_MODIFIED => Ok(CheckOk {
             updated: false,
             site: Site {
-                date: match get_header_value(&response, &header::DATE) {
+                last_modified: match get_header_value(&response, &header::LAST_MODIFIED) {
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
