@@ -33,7 +33,7 @@ tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag =
 tokio = { version = "=1.21.2", features = ["fs", "macros", "net", "rt-multi-thread"] }
 toml = "=0.5.9"
 tracing = "=0.1.36"
-tracing-subscriber = { version = "=0.3.15", features = ["env-filter"] }
+tracing-subscriber = { version = "=0.3.16", features = ["env-filter"] }
 trust-dns-resolver = "=0.22.0"
 url = { version = "2.3.1", features = ["serde"] }
 uuid = { version = "=1.1.2", features = ["v4"] }
