@@ -11,7 +11,7 @@ anyhow = "*"
 anyhow = "=1.0.65"
 blake2 = "=0.10.4"
 bytes = "=1.2.1"
-clap = { version = "=4.0.8", features = ["derive", "env"] }
+clap = { version = "=4.0.12", features = ["derive", "env"] }
 digest = "=0.10.5"
 directories = "=4.0.1"
 dotenv = "=0.15.0"
