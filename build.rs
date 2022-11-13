@@ -56,7 +56,7 @@ fn pwnedpassword() -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         if !std::process::Command::new("which")
-            .args(&["pkg-config"])
+            .args(["pkg-config"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .output()?
@@ -67,7 +67,7 @@ fn pwnedpassword() -> anyhow::Result<()> {
         }
 
         let status = std::process::Command::new("pkg-config")
-            .args(&["--exists", "sqlite3"])
+            .args(["--exists", "sqlite3"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .output()?

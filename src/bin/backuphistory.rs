@@ -58,7 +58,7 @@ fn main() {
     std::fs::copy(&source, &target).unwrap();
 
     Command::new("git")
-        .current_dir(&target.parent().unwrap())
+        .current_dir(target.parent().unwrap())
         .arg("add")
         .arg(".")
         .spawn()
@@ -67,7 +67,7 @@ fn main() {
         .expect("failed to wait to add");
 
     Command::new("git")
-        .current_dir(&target.parent().unwrap())
+        .current_dir(target.parent().unwrap())
         .arg("commit")
         .arg("-m")
         .arg(&config.message.unwrap_or_else(|| "update".to_string()))

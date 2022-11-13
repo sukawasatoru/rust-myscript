@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use clap::Parser;
 use digest::{Digest, FixedOutputReset};
 use rust_myscript::prelude::*;

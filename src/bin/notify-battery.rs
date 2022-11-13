@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     debug!(%use_terminal_notifier);
 
     let process = std::process::Command::new("pmset")
-        .args(&["-g", "pslog"])
+        .args(["-g", "pslog"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()?;
@@ -142,7 +142,7 @@ fn check_terminal_notifier(executable_name: &str) -> bool {
     }
 
     match std::process::Command::new("command")
-        .args(&["-v", executable_name])
+        .args(["-v", executable_name])
         .status()
     {
         Ok(status) => status.success(),

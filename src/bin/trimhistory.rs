@@ -166,7 +166,7 @@ fn show(num: Option<i32>) -> anyhow::Result<()> {
 }
 
 fn load_statistics(path: &Path) -> anyhow::Result<Statistics> {
-    let statistics_file = File::open(&path)?;
+    let statistics_file = File::open(path)?;
     let mut buf = BufReader::new(statistics_file);
     let mut statistics_data = Vec::new();
     buf.read_to_end(&mut statistics_data)?;
@@ -179,7 +179,7 @@ fn store_statistics(path: &Path, statistics: &Statistics) -> anyhow::Result<()> 
     if !data_dir.exists() {
         fs::create_dir_all(data_dir)?;
     }
-    let file = File::create(&path)?;
+    let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
     let statistics_data = toml::to_vec(&statistics)?;
     writer.write_all(&statistics_data)?;
