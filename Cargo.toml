@@ -9,7 +9,7 @@ anyhow = "*"
 
 [dependencies]
 anyhow = "=1.0.66"
-blake2 = "=0.10.5"
+blake2 = "=0.10.6"
 bytes = "=1.2.1"
 clap = { version = "=4.0.23", features = ["derive", "env"] }
 digest = "=0.10.5"
