@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{value_parser, Parser};
 use regex::Regex;
 use rust_myscript::prelude::*;
 use std::io::BufRead;
@@ -20,10 +20,11 @@ struct PSInfo {
     charging: bool,
 }
 
+/// Notify battery level to slack.
 #[derive(Debug, Parser)]
 struct Opt {
     /// The threshold of the battery level to notify that between 1 to 99
-    #[arg(short = 'l', long, default_value = "40", value_parser = parse_battery_threshold)]
+    #[arg(short = 'l', long, default_value = "40", value_parser = value_parser!(u8).range(1..100))]
     battery_level_threshold: u8,
 
     /// Bot name for slack
@@ -36,7 +37,7 @@ struct Opt {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
@@ -103,13 +104,6 @@ async fn main() -> anyhow::Result<()> {
     info!("Bye");
 
     Ok(())
-}
-
-fn parse_battery_threshold(value: &str) -> Result<u8, &'static str> {
-    match value.parse::<u8>() {
-        Ok(data @ 1..=99) => Ok(data),
-        _ => Err("expected 1..=99"),
-    }
 }
 
 fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
@@ -188,4 +182,15 @@ fn generate_slack_payload(context: &Context, ps_info: &PSInfo) -> String {
 }}"#,
         context.slack_user_name, ps_info.battery_level, ps_info.battery_remaining
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_cli() {
+        use clap::CommandFactory;
+        Opt::command().debug_assert()
+    }
 }

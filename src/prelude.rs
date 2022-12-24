@@ -1,5 +1,4 @@
-pub use anyhow::Context as _;
-pub use anyhow::Result as Fallible;
+pub use anyhow::{Context as _, Result as Fallible};
 
 #[derive(Default)]
 pub struct TomlLoader {
