@@ -1,7 +1,6 @@
 use clap::{value_parser, Parser};
 use regex::Regex;
 use rust_myscript::prelude::*;
-use std::ffi::CString;
 use std::io::BufRead;
 use tracing::{debug, info};
 
@@ -112,7 +111,10 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn get_hostname() -> Fallible<String> {
+    use std::ffi::CString;
+
     let name_max_wo_nul_len = usize::try_from(unsafe { libc::sysconf(libc::_SC_HOST_NAME_MAX) })
         .context("failed to convert sysconf(_SC_HOST_NAME_MAX) })")?;
 
@@ -124,6 +126,11 @@ fn get_hostname() -> Fallible<String> {
 
     let name = unsafe { CString::from_raw(name_raw) };
     Ok(name.to_str()?.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_hostname() -> Fallible<String> {
+    bail!("expect macOS");
 }
 
 fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
