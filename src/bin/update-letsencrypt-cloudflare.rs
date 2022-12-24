@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         .build()?;
 
     let dns_records_response = client
-        .get(&format!(
+        .get(format!(
             "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
             zone_identifier
         ))
@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| format!("the domain {} is not found", select_domain))?;
 
     let patch_dns_record_response = client
-        .patch(&format!(
+        .patch(format!(
             "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
             zone_identifier, dns_record_identifier
         ))

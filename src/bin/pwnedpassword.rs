@@ -241,7 +241,7 @@ fn check_data_source_net(plain_password: &str) -> anyhow::Result<Option<()>> {
     let password_hash =
         HexFormat(sha1::Sha1::digest(plain_password.as_bytes()).as_slice()).to_string();
 
-    let response = reqwest::blocking::get(&format!(
+    let response = reqwest::blocking::get(format!(
         "https://api.pwnedpasswords.com/range/{}",
         &password_hash[0..5]
     ))?

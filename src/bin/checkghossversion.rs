@@ -316,7 +316,7 @@ async fn main() -> anyhow::Result<()> {
     let mut client_builder = reqwest::Client::builder().user_agent("checkghossversion");
 
     if let Some(proxy) = get_proxy() {
-        client_builder = client_builder.proxy(reqwest::Proxy::https(&proxy)?);
+        client_builder = client_builder.proxy(reqwest::Proxy::https(proxy)?);
     }
 
     let body = generate_body(&oss_list.oss, false, opt.query_per_repo)?;
@@ -340,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
         let version_reg = match oss.version_rule {
             Some(ref rule) => {
                 debug!(%oss.repo, %rule);
-                Some(regex::Regex::new(rule)?)
+                Some(Regex::new(rule)?)
             }
             None => None,
         };
