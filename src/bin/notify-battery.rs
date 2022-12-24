@@ -1,6 +1,7 @@
 use clap::{value_parser, Parser};
 use regex::Regex;
 use rust_myscript::prelude::*;
+use std::ffi::CString;
 use std::io::BufRead;
 use tracing::{debug, info};
 
@@ -27,17 +28,19 @@ struct Opt {
     #[arg(short = 'l', long, default_value = "40", value_parser = value_parser!(u8).range(1..100))]
     battery_level_threshold: u8,
 
-    /// Bot name for slack
+    /// Bot name for slack. Use hostname as default value.
     #[arg(long)]
-    slack_bot_name: String,
+    slack_bot_name: Option<String>,
 
-    /// Web hooks URL for slack
-    #[arg(long)]
+    /// Web hooks URL for slack.
     slack_notify_url: String,
 }
 
 #[tokio::main]
 async fn main() -> Fallible<()> {
+    if cfg!(not(target_os = "macos")) {
+        bail!("expect macOS");
+    }
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
@@ -48,7 +51,10 @@ async fn main() -> Fallible<()> {
     let notify_threshold = opt.battery_level_threshold;
     let context = Context {
         terminal_notifier_name: "terminal-notifier".to_owned(),
-        slack_user_name: opt.slack_bot_name,
+        slack_user_name: match opt.slack_bot_name {
+            Some(data) => data,
+            None => get_hostname()?,
+        },
         slack_notify_url: opt.slack_notify_url,
         reqwest_client: reqwest::Client::new(),
         battery_level_regex: Regex::new("	([0-9]*)%;")?,
@@ -104,6 +110,20 @@ async fn main() -> Fallible<()> {
     info!("Bye");
 
     Ok(())
+}
+
+fn get_hostname() -> Fallible<String> {
+    let name_max_wo_nul_len = usize::try_from(unsafe { libc::sysconf(libc::_SC_HOST_NAME_MAX) })
+        .context("failed to convert sysconf(_SC_HOST_NAME_MAX) })")?;
+
+    let name_len = name_max_wo_nul_len + 1;
+    let name_raw = unsafe { CString::from_vec_unchecked(vec![0; name_len]).into_raw() };
+    let ret = unsafe { libc::gethostname(name_raw, name_len) };
+
+    ensure!(ret == 0, "failed to call gethostname: {}", ret);
+
+    let name = unsafe { CString::from_raw(name_raw) };
+    Ok(name.to_str()?.to_string())
 }
 
 fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
