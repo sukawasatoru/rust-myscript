@@ -19,6 +19,8 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build
+      env:
+        IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
       run: cargo build --release
     - name: Tests
       run: cargo test
