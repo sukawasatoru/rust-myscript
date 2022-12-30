@@ -45,7 +45,7 @@ async fn main() -> Fallible<()> {
     };
 
     dotenv::dotenv().ok();
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt::init();
 
     info!("Hello");
 
