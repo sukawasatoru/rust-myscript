@@ -36,6 +36,7 @@ struct Opt {
     #[arg(long, group = "fetch")]
     no_fetch: bool,
 
+    /// Update 'crates.io-index.git' always.
     #[arg(long, group = "fetch")]
     force_fetch: bool,
 
