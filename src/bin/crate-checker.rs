@@ -14,25 +14,30 @@
  * limitations under the License.
  */
 
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use clap::Parser;
 use futures::StreamExt;
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::fs::{create_dir_all, File};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Check new crate from specified Cargo.toml.
 #[derive(Parser)]
+#[clap(group = clap::ArgGroup::new("fetch").multiple(false))]
 struct Opt {
     /// Doesn't update 'crates.io-index.git' repository before check crate versions.
-    #[arg(long)]
+    #[arg(long, group = "fetch")]
     no_fetch: bool,
+
+    #[arg(long, group = "fetch")]
+    force_fetch: bool,
 
     /// Includes prerelease version.
     #[arg(long)]
@@ -57,10 +62,15 @@ async fn main() -> Fallible<()> {
         bail!("{} is not exists", opt.cargo_file.display())
     }
 
-    let crates = read_crates(&opt.cargo_file)?;
-
+    let current_time = Utc::now();
     let project_dirs = directories::ProjectDirs::from("com", "sukawasatoru", "Crate Updater")
         .expect("no valid home directory");
+    let prefs_path = project_dirs.config_dir().join("preferences.toml");
+
+    let mut prefs = load_prefs(&prefs_path)?;
+
+    let crates = read_crates(&opt.cargo_file)?;
+
     let cache_dir = project_dirs.cache_dir();
 
     debug!(?cache_dir);
@@ -73,11 +83,16 @@ async fn main() -> Fallible<()> {
     if repo_path.exists() {
         if opt.no_fetch {
             debug!("skip fetch");
-        } else {
+        } else if opt.force_fetch || Duration::minutes(5) < current_time - prefs.last_fetch {
+            debug!("fetch");
             git_fetch(&repo_path)?;
+            prefs.last_fetch = current_time;
+            store_prefs(&prefs_path, &prefs)?;
         }
     } else {
         git_clone(cache_dir)?;
+        prefs.last_fetch = current_time;
+        store_prefs(&prefs_path, &prefs)?;
     }
 
     let mut futs = futures::stream::FuturesOrdered::new();
@@ -311,4 +326,43 @@ where
 #[derive(Deserialize)]
 struct CratesIOVersion {
     vers: semver::Version,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Prefs {
+    last_fetch: DateTime<Utc>,
+}
+
+fn load_prefs(prefs_path: &Path) -> Fallible<Prefs> {
+    let config_path = prefs_path.parent().context("config directory")?;
+
+    if !config_path.exists() {
+        create_dir_all(config_path)?;
+    }
+
+    if !prefs_path.exists() {
+        return Ok(Prefs {
+            last_fetch: Utc.timestamp_opt(0, 0).unwrap(),
+        });
+    }
+
+    let mut prefs_string = String::new();
+    let mut buf = BufReader::new(File::open(prefs_path)?);
+
+    buf.read_to_string(&mut prefs_string)?;
+    Ok(toml::from_str(&prefs_string)?)
+}
+
+fn store_prefs(prefs_path: &Path, prefs: &Prefs) -> Fallible<()> {
+    let config_path = prefs_path.parent().context("config directory")?;
+
+    if !config_path.exists() {
+        create_dir_all(config_path)?;
+    }
+
+    let mut buf = BufWriter::new(File::create(prefs_path)?);
+    buf.write_all(toml::to_string(prefs)?.as_bytes())?;
+    buf.flush()?;
+
+    Ok(())
 }
