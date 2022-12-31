@@ -15,7 +15,7 @@
  */
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use clap::Parser;
+use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
@@ -30,7 +30,7 @@ use tracing::{debug, info};
 
 /// Check new crate from specified Cargo.toml.
 #[derive(Parser)]
-#[clap(group = clap::ArgGroup::new("fetch").multiple(false))]
+#[clap(name = "crate-checker", group = clap::ArgGroup::new("fetch").multiple(false))]
 struct Opt {
     /// Doesn't update 'crates.io-index.git' repository before check crate versions.
     #[arg(long, group = "fetch")]
@@ -44,8 +44,13 @@ struct Opt {
     #[arg(long)]
     pre_release: bool,
 
+    /// Generate shell completions.
+    #[arg(long, exclusive = true)]
+    completion: Option<clap_complete::Shell>,
+
     /// A 'Cargo.toml' to check crate.
-    cargo_file: PathBuf,
+    #[clap(value_hint = ValueHint::FilePath, required_unless_present = "completion")]
+    cargo_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -57,10 +62,21 @@ async fn main() -> Fallible<()> {
 
     let opt = Opt::parse();
 
+    if let Some(data) = opt.completion {
+        clap_complete::generate(
+            data,
+            &mut Opt::command(),
+            "crate-checker",
+            &mut std::io::stdout(),
+        );
+        return Ok(());
+    }
+
     check_git()?;
 
-    if !opt.cargo_file.exists() {
-        bail!("{} is not exists", opt.cargo_file.display())
+    let cargo_file = opt.cargo_file.expect("required_unless_present");
+    if !cargo_file.exists() {
+        bail!("{} is not exists", cargo_file.display())
     }
 
     let current_time = Utc::now();
@@ -70,7 +86,7 @@ async fn main() -> Fallible<()> {
 
     let mut prefs = load_prefs(&prefs_path)?;
 
-    let crates = read_crates(&opt.cargo_file)?;
+    let crates = read_crates(&cargo_file)?;
 
     let cache_dir = project_dirs.cache_dir();
 
