@@ -276,7 +276,7 @@ fn read_latest_version(
         }
 
         let line_version = serde_json::from_str::<CratesIOVersion>(&file_string)?;
-        if !line_version.vers.pre.is_empty() && !pre_release {
+        if line_version.yanked || (!line_version.vers.pre.is_empty() && !pre_release) {
             continue;
         }
         if latest < line_version.vers {
@@ -343,6 +343,7 @@ where
 #[derive(Deserialize)]
 struct CratesIOVersion {
     vers: semver::Version,
+    yanked: bool,
 }
 
 #[derive(Deserialize, Serialize)]
