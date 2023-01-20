@@ -26,7 +26,7 @@ num_cpus = "=1.15.0"
 opener = "=0.5.0"
 rand = "=0.8.5"
 regex = "=1.7.1"
-reqwest = { version = "=0.11.13", features = ["blocking", "json"] }
+reqwest = { version = "=0.11.14", features = ["blocking", "json"] }
 rusqlite = { version = "=0.28.0", features = ["bundled-windows"] }
 semver = { version = "=1.0.16", features = ["serde"] }
 serde = { version = "=1.0.152", features = ["derive", "rc"] }
