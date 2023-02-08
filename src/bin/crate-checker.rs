@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 sukawasatoru
+ * Copyright 2022,2023 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -102,7 +102,8 @@ async fn main() -> Fallible<()> {
             debug!("skip fetch");
         } else if opt.force_fetch || Duration::minutes(5) < current_time - prefs.last_fetch {
             debug!("fetch");
-            git_pull(&repo_path)?;
+            git_fetch(&repo_path)?;
+            git_checkout(&repo_path)?;
             prefs.last_fetch = current_time;
             store_prefs(&prefs_path, &prefs)?;
         }
@@ -178,9 +179,9 @@ fn check_git() -> Fallible<()> {
     Ok(())
 }
 
-fn git_pull(repo_path: &Path) -> Fallible<()> {
+fn git_fetch(repo_path: &Path) -> Fallible<()> {
     let status_code = std::process::Command::new("git")
-        .arg("pull")
+        .args(["fetch", "origin", "master"])
         .current_dir(repo_path)
         .spawn()?
         .wait()?;
@@ -189,6 +190,22 @@ fn git_pull(repo_path: &Path) -> Fallible<()> {
         Some(0) => Ok(()),
         Some(_) => {
             bail!("failed to fetch repository: {}", status_code)
+        }
+        None => bail!("killed git process"),
+    }
+}
+
+fn git_checkout(repo_path: &Path) -> Fallible<()> {
+    let status_code = std::process::Command::new("git")
+        .args(["checkout", "origin/master"])
+        .current_dir(repo_path)
+        .spawn()?
+        .wait()?;
+
+    match status_code.code() {
+        Some(0) => Ok(()),
+        Some(_) => {
+            bail!("failed to checkout repository: {}", status_code)
         }
         None => bail!("killed git process"),
     }
