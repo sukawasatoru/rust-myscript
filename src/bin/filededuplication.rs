@@ -149,9 +149,7 @@ async fn main() -> anyhow::Result<()> {
 
                 if opt.dry_run {
                     eprintln!("Would create dir to {backup_path_parent:?}");
-                    eprintln!(
-                        "Would move to {backup_path_parent:?} from {file_path:?}"
-                    );
+                    eprintln!("Would move to {backup_path_parent:?} from {file_path:?}");
                 } else {
                     debug!(?backup_path_parent, "create");
                     let create_dir_ret = tokio::fs::create_dir_all(backup_path_parent).await;
