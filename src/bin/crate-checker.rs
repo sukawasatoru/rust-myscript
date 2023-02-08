@@ -20,7 +20,7 @@ use futures::StreamExt;
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -123,6 +123,7 @@ async fn main() -> Fallible<()> {
         }));
     }
 
+    let mut updated_map = BTreeMap::<String, (semver::Version, semver::Version)>::new();
     while let Some(data) = futs.next().await {
         let (crate_name, current_version, latest_version) = data?;
         let latest_version = match latest_version {
@@ -134,11 +135,15 @@ async fn main() -> Fallible<()> {
             }
         };
         if current_version < latest_version {
-            println!(
-                "name: {}, current: {}, latest: {}",
-                crate_name, current_version, latest_version
-            );
+            updated_map.insert(crate_name, (current_version, latest_version));
         }
+    }
+
+    for (crate_name, (current_version, latest_version)) in updated_map {
+        println!(
+            "name: {}, current: {}, latest: {}",
+            crate_name, current_version, latest_version
+        );
     }
     info!("Bye");
 
