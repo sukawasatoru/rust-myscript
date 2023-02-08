@@ -300,7 +300,7 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
         write!(f, "{:02x?}", self.0[0])?;
 
         for entry in &self.0[1..self.0.len()] {
-            write!(f, "{:02x?}", entry)?;
+            write!(f, "{entry:02x?}")?;
         }
 
         Ok(())
@@ -1255,7 +1255,7 @@ mod tests {
             r#"username="My Name", realm="My Realm", nonce="NONCE123", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=auth, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1264,7 +1264,7 @@ mod tests {
             r#"Digest realm="My Realm", nonce="NONCE123", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=auth, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1273,7 +1273,7 @@ mod tests {
             r#"Digest username="My Name", nonce="NONCE123", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=auth, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1282,7 +1282,7 @@ mod tests {
             r#"Digest username="My Name", realm="My Realm", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=auth, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1291,7 +1291,7 @@ mod tests {
             r#"Digest username="My Name", realm="My Realm", nonce="NONCE123", cnonce="CNONCE123", nc=00000001, qop=auth, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1300,7 +1300,7 @@ mod tests {
             r#"Digest username="My Name", realm="My Realm", nonce="NONCE123", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=auth, algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]
@@ -1326,7 +1326,7 @@ mod tests {
             r#"Digest username="My Name", realm="My Realm", nonce="NONCE123", uri="/path/to/secret", cnonce="CNONCE123", nc=00000001, qop=unexpected, response="RES123", algorithm=MD5"#,
         );
 
-        assert!(container.is_err(), "{:?}", container);
+        assert!(container.is_err(), "{container:?}");
     }
 
     #[test]

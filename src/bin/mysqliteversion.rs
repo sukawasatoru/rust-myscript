@@ -17,7 +17,7 @@ struct Opt {
 
 fn main() -> Fallible<()> {
     let opt: Opt = Opt::parse();
-    println!("{:?}", opt);
+    println!("{opt:?}");
 
     let version = if let Some(database_path) = opt.database_path {
         let mut conn = Connection::open(database_path)?;
@@ -28,7 +28,7 @@ fn main() -> Fallible<()> {
         unreachable!()
     };
 
-    println!("{}", version);
+    println!("{version}");
 
     Ok(())
 }

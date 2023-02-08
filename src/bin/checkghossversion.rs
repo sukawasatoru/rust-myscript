@@ -348,7 +348,7 @@ async fn main() -> anyhow::Result<()> {
             CheckMethod::Release => {
                 let result_list = result["data"][&repo_name]["releases"]["nodes"].take();
                 let result_list = serde_json::from_value::<Vec<ResultRelease>>(result_list)
-                    .unwrap_or_else(|_| panic!("release not found: {}", repo_name));
+                    .unwrap_or_else(|_| panic!("release not found: {repo_name}"));
                 let release = result_list
                     .into_iter()
                     .filter(|entry| !entry.is_draft && (!entry.is_prerelease || oss.prerelease))
@@ -364,7 +364,7 @@ async fn main() -> anyhow::Result<()> {
             CheckMethod::Tag => {
                 let result_list = result["data"][&repo_name]["refs"]["nodes"].take();
                 let result_list = serde_json::from_value::<Vec<ResultTag>>(result_list)
-                    .unwrap_or_else(|_| panic!("tag not found: {}", repo_name));
+                    .unwrap_or_else(|_| panic!("tag not found: {repo_name}"));
                 let tag = result_list
                     .into_iter()
                     .filter(|entry| match version_reg {
@@ -465,8 +465,8 @@ fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config
     }
     let config = Config::new();
     let mut buffer = BufWriter::new(File::create(path)?);
-    buffer.write_all(&toml::to_vec(&config)?)?;
-    eprintln!("Config file created successfully: {:?}", path);
+    buffer.write_all(toml::to_string(&config)?.as_bytes())?;
+    eprintln!("Config file created successfully: {path:?}");
     Ok(config)
 }
 

@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         result_mac_addresses.insert(data.mac_address.to_owned());
-        println!("{} {:?}", from_address, data);
+        println!("{from_address} {data:?}");
     }
 
     Ok(())
@@ -662,7 +662,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
                     if !info.mac_address.is_empty() {
                         info.mac_address.push(':');
                     }
-                    write!(&mut info.mac_address, "{:02X}", entry)?;
+                    write!(&mut info.mac_address, "{entry:02X}")?;
                 }
             }
             DatagramTag::Network => {
@@ -670,7 +670,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
                     if !info.network.is_empty() {
                         info.network.push('.');
                     }
-                    write!(&mut info.network, "{}", entry)?;
+                    write!(&mut info.network, "{entry}")?;
                 }
             }
             DatagramTag::Firmware => {
@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(data.len(), 4);
 
         let source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        (&source[..]).read(&mut data).unwrap();
+        (&source[..]).read_exact(&mut data).unwrap();
 
         assert_eq!(data.len(), 4);
         assert_eq!(&data[..], [0, 1, 2, 3]);
@@ -726,7 +726,7 @@ mod tests {
     fn rang() {
         assert_eq!(
             (0..(-1))
-                .map(|data| format!("{}", data))
+                .map(|data| format!("{data}"))
                 .collect::<Vec<_>>()
                 .join(","),
             ""

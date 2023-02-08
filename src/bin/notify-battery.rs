@@ -81,7 +81,7 @@ async fn main() -> Fallible<()> {
             break;
         }
 
-        print!("{}", s);
+        print!("{s}");
         let ps_info = match parse_line(&context, &s) {
             Some(data) => data,
             None => continue,

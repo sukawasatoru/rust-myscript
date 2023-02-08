@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                             Ok(n) if n == 0 => break,
                             Ok(n) => n,
                             Err(e) => {
-                                eprintln!("{:?}", e);
+                                eprintln!("{e:?}");
                                 warn!(?e);
                                 continue 'entry;
                             }
@@ -148,24 +148,23 @@ async fn main() -> anyhow::Result<()> {
                 let backup_path_parent = backup_path.parent().context("parent")?;
 
                 if opt.dry_run {
-                    eprintln!("Would create dir to {:?}", backup_path_parent);
+                    eprintln!("Would create dir to {backup_path_parent:?}");
                     eprintln!(
-                        "Would move to {:?} from {:?}",
-                        backup_path_parent, file_path
+                        "Would move to {backup_path_parent:?} from {file_path:?}"
                     );
                 } else {
                     debug!(?backup_path_parent, "create");
                     let create_dir_ret = tokio::fs::create_dir_all(backup_path_parent).await;
 
                     if create_dir_ret.is_err() {
-                        eprintln!("failed to create dir: {:?}", create_dir_ret);
+                        eprintln!("failed to create dir: {create_dir_ret:?}");
                         continue;
                     }
 
                     debug!(from = ?file_path, to = ?backup_path, "rename");
                     let move_ret = tokio::fs::rename(&file_path, &backup_path).await;
                     if move_ret.is_err() {
-                        eprintln!("failed to move file: {:?}", move_ret);
+                        eprintln!("failed to move file: {move_ret:?}");
                         continue;
                     }
                 }
@@ -173,20 +172,20 @@ async fn main() -> anyhow::Result<()> {
                 // TODO: use repository.
                 #[allow(clippy::collapsible_if)]
                 if opt.dry_run {
-                    eprintln!("Would remove {:?}", file_path);
+                    eprintln!("Would remove {file_path:?}");
                 } else {
                     debug!(?file_path, "remove");
                     let ret_rm = tokio::fs::remove_file(file_path).await;
                     if ret_rm.is_err() {
-                        eprintln!("failed to remove file: {:?}", ret_rm);
+                        eprintln!("failed to remove file: {ret_rm:?}");
                     }
                 }
             }
 
             if opt.dry_run {
-                eprintln!("Would clone {:?} to {:?}", source, file_path);
+                eprintln!("Would clone {source:?} to {file_path:?}");
             } else {
-                println!("clone {:?} to {:?}", source, file_path);
+                println!("clone {source:?} to {file_path:?}");
 
                 #[cfg(target_os = "macos")]
                 unsafe {
@@ -196,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
                         0,
                     );
                     if ret_clonefile != 0 {
-                        eprintln!("failed to execute the clonefile command: {}", errno);
+                        eprintln!("failed to execute the clonefile command: {errno}");
                     }
                 };
             }
@@ -219,7 +218,7 @@ fn walk_dir(
                 Ok(None) => break,
                 Ok(Some(data)) => data,
                 Err(e) => {
-                    eprintln!("failed to read entry: {:?}", e);
+                    eprintln!("failed to read entry: {e:?}");
                     continue;
                 }
             };

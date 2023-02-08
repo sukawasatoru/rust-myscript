@@ -123,10 +123,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("results:");
     for (ip_address, product_name, system_mode) in results {
-        println!(
-            "address: {}, product name: {}, system mode: {}",
-            ip_address, product_name, system_mode
-        );
+        println!("address: {ip_address}, product name: {product_name}, system mode: {system_mode}");
     }
 
     info!("bye");
@@ -243,9 +240,9 @@ async fn retrieve_system_mode(
     let ret = context
         .regex_system_mode
         .captures(response_string.trim())
-        .with_context(|| format!("no match found: {}", response_string))?
+        .with_context(|| format!("no match found: {response_string}"))?
         .get(1)
-        .with_context(|| format!("no match group found: {}", response_string))?
+        .with_context(|| format!("no match group found: {response_string}"))?
         .as_str()
         .parse::<i32>()?
         .try_into()?;
@@ -261,8 +258,7 @@ async fn request_aterm(
     trace!(ip = %target, from = ?form_data, "request");
     let response = client
         .post(&format!(
-            "http://{}/aterm_httpif.cgi/getparamcmd_no_auth",
-            target
+            "http://{target}/aterm_httpif.cgi/getparamcmd_no_auth"
         ))
         .form(&form_data)
         .timeout(*timeout)

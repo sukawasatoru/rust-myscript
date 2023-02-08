@@ -31,10 +31,10 @@ async fn main() -> anyhow::Result<()> {
     let host = get_wimax_host(&config).expect("need host");
     let token = get_wx04_token(&config).expect("need WX04 token");
     let body = reqwest::Client::new()
-        .get(&format!("http://{}/index.cgi/network_count_main", host))
+        .get(&format!("http://{host}/index.cgi/network_count_main"))
         .header(
             reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Basic {}", token))?,
+            reqwest::header::HeaderValue::from_str(&format!("Basic {token}"))?,
         )
         .send()
         .await?
@@ -85,7 +85,7 @@ fn prepare_config(loader: &mut TomlLoader, path: &Path) -> anyhow::Result<Config
 
     let config = Config::new();
     let mut buffer = BufWriter::new(File::create(path)?);
-    buffer.write_all(&toml::to_vec(&config)?)?;
+    buffer.write_all(toml::to_string(&config)?.as_bytes())?;
     info!(?path, "Config file created successfully");
     Ok(config)
 }

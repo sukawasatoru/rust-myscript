@@ -10,15 +10,15 @@ impl TomlLoader {
         Default::default()
     }
 
-    pub fn load<'a, T>(&'a mut self, path: &std::path::Path) -> anyhow::Result<T>
+    pub fn load<T>(&mut self, path: &std::path::Path) -> Fallible<T>
     where
-        T: serde::de::Deserialize<'a>,
+        T: serde::de::DeserializeOwned,
     {
         use std::io::Read;
 
         self.buf.clear();
         std::io::BufReader::new(std::fs::File::open(path)?).read_to_string(&mut self.buf)?;
-        Ok(toml::from_str::<T>(&self.buf)?)
+        Ok(toml::from_str(&self.buf)?)
     }
 }
 
@@ -33,7 +33,7 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
         write!(f, "{:02X?}", self.0[0])?;
 
         for entry in &self.0[1..self.0.len()] {
-            write!(f, ":{:02X?}", entry)?;
+            write!(f, ":{entry:02X?}")?;
         }
 
         Ok(())

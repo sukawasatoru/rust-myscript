@@ -36,12 +36,12 @@ fn main() {
     let source = config.source;
     let target = config.target;
     if !source.exists() {
-        println!("failed to resolve source: {:?}", target);
+        println!("failed to resolve source: {target:?}");
         return;
     }
 
     if !target.exists() {
-        println!("failed to resolve target: {:?}", target);
+        println!("failed to resolve target: {target:?}");
         return;
     }
 

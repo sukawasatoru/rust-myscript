@@ -188,10 +188,9 @@ async fn handler_callback2(
 <meta name="viewport" content="width=device-width">
 <title>OAuth result</title>
 <p>
-  {}
+  {description}
 </p>
 "#,
-            description,
         ))
     }
 
@@ -214,8 +213,7 @@ async fn handler_callback2(
         }) => {
             return if authn_state == state {
                 tx.send(Err(format!(
-                    "error: {:?}, description: {}",
-                    error, error_description
+                    "error: {error:?}, description: {error_description}"
                 )))
                 .expect("all receivers dropped");
                 create_response_html(&error_description).into_response()

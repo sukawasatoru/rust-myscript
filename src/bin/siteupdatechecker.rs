@@ -181,7 +181,7 @@ async fn main() -> Fallible<()> {
     let new_prefs_string = toml::to_string(&new_site_prefs)?;
     println!("#");
     println!("# new config:");
-    println!("{}", new_prefs_string);
+    println!("{new_prefs_string}");
 
     if !updated_sites.is_empty() || !error_sites.is_empty() {
         info!("notify to slack");

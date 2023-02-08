@@ -51,14 +51,13 @@ fn main() -> anyhow::Result<()> {
 
     let dns_records_response = client
         .get(format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
-            zone_identifier
+            "https://api.cloudflare.com/client/v4/zones/{zone_identifier}/dns_records"
         ))
         .bearer_auth(api_token)
         .send()?
         .json::<serde_json::Value>()?;
 
-    let select_domain = format!("_acme-challenge.{}", domain);
+    let select_domain = format!("_acme-challenge.{domain}");
     let dns_record_identifier = dns_records_response["result"]
         .as_array()
         .context("result is not array")?
@@ -69,22 +68,19 @@ fn main() -> anyhow::Result<()> {
                 .filter(|data| data == &select_domain)
                 .and_then(|_| data["id"].as_str().map(ToOwned::to_owned))
         })
-        .with_context(|| format!("the domain {} is not found", select_domain))?;
+        .with_context(|| format!("the domain {select_domain} is not found"))?;
 
     let patch_dns_record_response = client
-        .patch(format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
-            zone_identifier, dns_record_identifier
-        ))
+        .patch(format!("https://api.cloudflare.com/client/v4/zones/{zone_identifier}/dns_records/{dns_record_identifier}"))
         .bearer_auth(api_token)
-        .body(format!(r#"{{"content": "{}"}}"#, validation_string))
+        .body(format!(r#"{{"content": "{validation_string}"}}"#))
         .send()?;
 
     let status = patch_dns_record_response.status();
     let ret_text = patch_dns_record_response.text()?;
 
     if status != reqwest::StatusCode::OK {
-        anyhow::bail!("failed to update record: {}", ret_text);
+        bail!("failed to update record: {ret_text}");
     }
 
     for retry_second in [1, 3, 5, 7, 11, 13, 17, 19, 23, 29].iter() {
@@ -100,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             .context("lookup response is empty")?;
 
         let txt_string = String::from_utf8(txt_u8)?;
-        println!("txt_string: {}", txt_string);
+        println!("txt_string: {txt_string}");
         if txt_string == validation_string {
             break;
         }

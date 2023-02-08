@@ -5,11 +5,11 @@ use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
     checkghossversion().map_err(|e| {
-        eprintln!("failed to execute the checkghossversion: {:?}", e);
+        eprintln!("failed to execute the checkghossversion: {e:?}");
         e
     })?;
     pwnedpassword().map_err(|e| {
-        eprintln!("failed to execute the pwnedpassword: {:?}", e);
+        eprintln!("failed to execute the pwnedpassword: {e:?}");
         e
     })?;
 
@@ -23,7 +23,7 @@ fn checkghossversion() -> anyhow::Result<()> {
     let mut methods = Vec::new();
     let mut file_string = String::new();
     for file_name in ["fragment_release", "fragment_tag"].iter() {
-        let file_path = asset_path.join(format!("{}.graphql", file_name));
+        let file_path = asset_path.join(format!("{file_name}.graphql"));
         let mut file = match File::open(&file_path) {
             Ok(ok) => ok,
             Err(e) => anyhow::bail!("Failed to open file: {:?}, {:?}", file_path, e),

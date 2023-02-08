@@ -140,10 +140,7 @@ async fn main() -> Fallible<()> {
     }
 
     for (crate_name, (current_version, latest_version)) in updated_map {
-        println!(
-            "name: {}, current: {}, latest: {}",
-            crate_name, current_version, latest_version
-        );
+        println!("name: {crate_name}, current: {current_version}, latest: {latest_version}");
     }
     info!("Bye");
 
@@ -269,7 +266,7 @@ fn read_latest_version(
     pre_release: bool,
 ) -> Fallible<semver::Version> {
     let git_result = std::process::Command::new("git")
-        .args(["ls-files", "-z", &format!("*/{}", crate_name)])
+        .args(["ls-files", "-z", &format!("*/{crate_name}")])
         .stdout(std::process::Stdio::piped())
         .current_dir(repo_path)
         .spawn()?

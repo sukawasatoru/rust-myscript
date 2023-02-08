@@ -132,7 +132,7 @@ fn trim(history_path: PathBuf, backup_path: Option<PathBuf>) -> anyhow::Result<(
     let out_file = File::create(&history_path)?;
     let mut writer = BufWriter::new(out_file);
     for entity in trimmed.iter() {
-        writeln!(&mut writer, "{}", entity)?;
+        writeln!(&mut writer, "{entity}")?;
     }
     writer.flush()?;
 
@@ -168,9 +168,9 @@ fn show(num: Option<i32>) -> anyhow::Result<()> {
 fn load_statistics(path: &Path) -> anyhow::Result<Statistics> {
     let statistics_file = File::open(path)?;
     let mut buf = BufReader::new(statistics_file);
-    let mut statistics_data = Vec::new();
-    buf.read_to_end(&mut statistics_data)?;
-    Ok(toml::from_slice(&statistics_data)?)
+    let mut statistics_data = String::new();
+    buf.read_to_string(&mut statistics_data)?;
+    Ok(toml::from_str(&statistics_data)?)
 }
 
 fn store_statistics(path: &Path, statistics: &Statistics) -> anyhow::Result<()> {
@@ -181,8 +181,8 @@ fn store_statistics(path: &Path, statistics: &Statistics) -> anyhow::Result<()> 
     }
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
-    let statistics_data = toml::to_vec(&statistics)?;
-    writer.write_all(&statistics_data)?;
+    let statistics_data = toml::to_string(&statistics)?;
+    writer.write_all(statistics_data.as_bytes())?;
     Ok(())
 }
 

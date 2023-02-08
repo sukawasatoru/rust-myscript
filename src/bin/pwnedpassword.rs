@@ -70,7 +70,7 @@ struct HexFormat<'a>(&'a [u8]);
 impl<'a> std::fmt::Display for HexFormat<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for entry in self.0 {
-            write!(f, "{:02X?}", entry)?;
+            write!(f, "{entry:02X?}")?;
         }
 
         Ok(())
@@ -159,7 +159,7 @@ fn main() -> Fallible<()> {
                         first_pwned = true;
                         println!();
                     }
-                    println!("pwned: {}", plain_password);
+                    println!("pwned: {plain_password}");
                 }
             }
         }
