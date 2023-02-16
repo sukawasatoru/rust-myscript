@@ -18,7 +18,7 @@ blake2 = "=0.10.6"
 bytes = "=1.4.0"
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = { version = "=4.1.4", features = ["derive", "env"] }
-clap_complete = "=4.1.1"
+clap_complete = "=4.1.2"
 digest = "=0.10.6"
 directories = "=4.0.1"
 dotenv = "=0.15.0"
