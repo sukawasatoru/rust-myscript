@@ -12,7 +12,7 @@ anyhow = "*"
 
 [dependencies]
 anyhow = "=1.0.69"
-axum = { version = "=0.6.4", features = ["macros"] }
+axum = { version = "=0.6.10", features = ["macros"] }
 base64 = "=0.21.0"
 blake2 = "=0.10.6"
 bytes = "=1.4.0"
