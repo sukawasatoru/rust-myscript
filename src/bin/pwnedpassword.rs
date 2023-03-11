@@ -225,7 +225,6 @@ fn check_data_source_db(db_path: &Path, plain_password: &str) -> anyhow::Result<
             password_table.name()
         ))?
         .query_map(params![password_hash], |row| Ok(0 < row.get::<_, i32>(0)?))?
-        .into_iter()
         .next()
         .context("SELECT count(*)")??;
 
