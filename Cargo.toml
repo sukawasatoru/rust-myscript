@@ -12,19 +12,19 @@ anyhow = "*"
 
 [dependencies]
 anyhow = "=1.0.69"
-axum = { version = "=0.6.4", features = ["macros"] }
+axum = { version = "=0.6.10", features = ["macros"] }
 base64 = "=0.21.0"
 blake2 = "=0.10.6"
 bytes = "=1.4.0"
 chrono = { version = "0.4.23", features = ["serde"] }
-clap = { version = "=4.1.4", features = ["derive", "env"] }
-clap_complete = "=4.1.1"
+clap = { version = "=4.1.8", features = ["derive", "env"] }
+clap_complete = "=4.1.4"
 digest = "=0.10.6"
 directories = "=4.0.1"
 dotenv = "=0.15.0"
 futures = "=0.3.26"
 hmac = "=0.12.1"
-libc = "=0.2.139"
+libc = "=0.2.140"
 md-5 = "=0.10.5"
 mime = "=0.3.16"
 num_cpus = "=1.15.0"
@@ -34,15 +34,15 @@ regex = "=1.7.1"
 reqwest = { version = "=0.11.14", features = ["blocking", "json"] }
 rusqlite = { version = "=0.28.0", features = ["bundled-windows"] }
 semver = { version = "=1.0.16", features = ["serde"] }
-serde = { version = "=1.0.152", features = ["derive", "rc"] }
-serde_json = "=1.0.92"
+serde = { version = "=1.0.154", features = ["derive", "rc"] }
+serde_json = "=1.0.94"
 sha-1 = "=0.10.1"
 sha2 = "=0.10.6"
 sha3 = "=0.10.6"
 serde_urlencoded = "=0.7.1"
 strum = { version = "=0.24.1", features = ["derive"] }
 tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag = "v0.3.2" }
-tokio = { version = "=1.25.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "=1.26.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
 toml = "=0.7.2"
 tracing = "=0.1.37"
 tracing-subscriber = { version = "=0.3.16", features = ["env-filter"] }
