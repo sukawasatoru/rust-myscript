@@ -153,7 +153,10 @@ fn chat(
         None => Default::default(),
     };
 
-    let client = Client::builder().default_headers(default_headers).build()?;
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60 * 5))
+        .default_headers(default_headers)
+        .build()?;
 
     let mut messages = Vec::new();
     let mut read_buf = String::new();
