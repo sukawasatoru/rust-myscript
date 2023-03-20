@@ -21,6 +21,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::fmt::{Display, Formatter};
 use std::io::prelude::*;
 use std::io::Read;
@@ -53,9 +54,27 @@ enum Command {
         model: Option<String>,
     },
 
+    /// Creates a new edit for the provided input, instruction, and parameters - https://platform.openai.com/docs/api-reference/edits/create
+    #[command()]
+    Edit {
+        #[command(subcommand)]
+        cmd: EditCommand,
+    },
+
     /// Open editor to edit settings.
     #[command(subcommand)]
     Settings(SettingsCommand),
+}
+
+#[derive(Subcommand)]
+enum EditCommand {
+    /// Translate input text
+    #[command()]
+    Translate {
+        /// Output language
+        #[arg(long, default_value = "Japanese")]
+        target: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -113,6 +132,11 @@ fn main() -> Fallible<()> {
 
     match opt.cmd {
         Command::Chat { model } => chat(config_dir, opt.org_id, opt.api_key, model)?,
+        Command::Edit { cmd } => match cmd {
+            EditCommand::Translate { target } => {
+                edit_translate(config_dir, opt.org_id, opt.api_key, target)?
+            }
+        },
         Command::Settings(cmd) => match cmd {
             SettingsCommand::List => list_settings(config_dir)?,
             SettingsCommand::Get { key } => get_setting(config_dir, &key)?,
@@ -131,22 +155,7 @@ fn chat(
     arg_api_key: Option<String>,
     model: Option<String>,
 ) -> Fallible<()> {
-    let settings = load_settings(config_dir_path)?;
-
-    let mut default_headers = HeaderMap::new();
-
-    let api_key = match arg_api_key.or_else(|| settings.api_key) {
-        Some(data) => data,
-        None => bail!("need api_key"),
-    };
-
-    let mut api_key = format!("Bearer {api_key}").parse::<HeaderValue>()?;
-    api_key.set_sensitive(true);
-    default_headers.insert(header::AUTHORIZATION, api_key);
-
-    if let Some(organization_id) = arg_organization_id.or_else(|| settings.organization_id) {
-        default_headers.insert("OpenAI-Organization", organization_id.parse()?);
-    }
+    let default_headers = prepare_headers(config_dir_path, arg_organization_id, arg_api_key)?;
 
     let model = match model {
         Some(data) => data.parse::<ChatCompletionModel>()?,
@@ -161,15 +170,7 @@ fn chat(
     let mut messages = Vec::new();
     let mut read_buf = String::new();
 
-    #[cfg(target_os = "windows")]
-    {
-        eprintln!("Please input message and Ctrl+Z");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        eprintln!("Please input message and Ctrl+D");
-    }
+    print_stdin_help();
 
     loop {
         read_buf.clear();
@@ -230,6 +231,54 @@ fn chat(
     Ok(())
 }
 
+fn edit_translate(
+    config_dir_path: &Path,
+    arg_organization_id: Option<String>,
+    arg_api_key: Option<String>,
+    target: String,
+) -> Fallible<()> {
+    let default_headers = prepare_headers(config_dir_path, arg_organization_id, arg_api_key)?;
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60 * 5))
+        .default_headers(default_headers)
+        .build()?;
+
+    print_stdin_help();
+
+    let mut read_buf = String::new();
+
+    std::io::stdin().read_to_string(&mut read_buf)?;
+
+    let content = read_buf.trim().to_owned();
+    if content.is_empty() {
+        return Ok(());
+    }
+
+    eprintln!("...");
+
+    let body = json!({
+        "model": EditModel::TextDavinchEdit001,
+        "input": content,
+        "instruction": format!("Translate input text to {target}"),
+    });
+
+    let ret = client
+        .post("https://api.openai.com/v1/edits")
+        .json(&body)
+        .send()?
+        .error_for_status()?
+        .text()?;
+    trace!(%ret);
+    let ret = serde_json::from_str::<serde_json::Value>(&ret)?;
+    let ret = ret["choices"][0]["text"]
+        .as_str()
+        .context("empty response text")?;
+    eprintln!("{ret}");
+
+    Ok(())
+}
+
 fn list_settings(config_dir_path: &Path) -> Fallible<()> {
     let settings = load_settings(config_dir_path)?;
 
@@ -274,6 +323,43 @@ fn print_setting(key: &SettingsKey, value: &Option<String>) {
         "{key}: {}",
         value.as_ref().map(|data| data.as_str()).unwrap_or("(none)"),
     );
+}
+
+fn print_stdin_help() {
+    #[cfg(target_os = "windows")]
+    {
+        eprintln!("Please input message and Ctrl+Z");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        eprintln!("Please input message and Ctrl+D");
+    }
+}
+
+fn prepare_headers(
+    config_dir_path: &Path,
+    arg_organization_id: Option<String>,
+    arg_api_key: Option<String>,
+) -> Fallible<HeaderMap> {
+    let settings = load_settings(config_dir_path)?;
+
+    let mut default_headers = HeaderMap::new();
+
+    let api_key = match arg_api_key.or(settings.api_key) {
+        Some(data) => data,
+        None => bail!("need api_key"),
+    };
+
+    let mut api_key = format!("Bearer {api_key}").parse::<HeaderValue>()?;
+    api_key.set_sensitive(true);
+    default_headers.insert(header::AUTHORIZATION, api_key);
+
+    if let Some(organization_id) = arg_organization_id.or(settings.organization_id) {
+        default_headers.insert("OpenAI-Organization", organization_id.parse()?);
+    }
+
+    Ok(default_headers)
 }
 
 fn load_settings(config_dir_path: &Path) -> Fallible<Settings> {
@@ -421,4 +507,25 @@ enum ChatCompletionResponseChoiceFinishReason {
     Stop,
     Length,
     ContentFilter,
+}
+
+/// ref. https://platform.openai.com/docs/api-reference/edits/create
+#[derive(Clone, Serialize)]
+enum EditModel {
+    #[serde(rename = "text-davinci-edit-001")]
+    TextDavinchEdit001,
+    #[serde(rename = "code-davinci-edit-001")]
+    CodeDavinciEdit001,
+}
+
+impl FromStr for EditModel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "text-davinci-edit-001" => Ok(Self::TextDavinchEdit001),
+            "code-davinci-edit-001" => Ok(Self::CodeDavinciEdit001),
+            _ => bail!("unexpected str: {}", s),
+        }
+    }
 }
