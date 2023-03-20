@@ -260,7 +260,7 @@ fn edit_translate(
     let body = json!({
         "model": EditModel::TextDavinchEdit001,
         "input": content,
-        "instruction": format!("Translate input text to {target}"),
+        "instruction": format!("Translate to {target}"),
     });
 
     let ret = client
