@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::exit;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, info, warn, Instrument};
+use tracing::Instrument;
 
 #[derive(Parser)]
 #[command(group = ArgGroup::new("backup").required(true))]

@@ -3,7 +3,6 @@ use rust_myscript::prelude::*;
 use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-use tracing::{debug, info, trace, warn};
 
 #[derive(Debug, Parser)]
 struct Opt {

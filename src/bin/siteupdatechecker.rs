@@ -24,7 +24,6 @@ use sha3::{Digest, Sha3_224};
 use std::fmt::{Display, Formatter};
 use std::io::prelude::*;
 use std::rc::Rc;
-use tracing::info;
 use url::Url;
 
 #[derive(Deserialize)]

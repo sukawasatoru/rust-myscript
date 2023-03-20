@@ -26,7 +26,6 @@ use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, info};
 
 /// Check new crate from specified Cargo.toml.
 #[derive(Parser)]

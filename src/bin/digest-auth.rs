@@ -4,7 +4,6 @@ use clap::Parser;
 use digest::{Digest, FixedOutputReset};
 use rust_myscript::prelude::*;
 use std::str::FromStr;
-use tracing::{debug, info, warn};
 use warp::http::header;
 use warp::http::StatusCode;
 use warp::Filter;

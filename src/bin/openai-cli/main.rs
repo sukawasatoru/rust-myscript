@@ -27,7 +27,6 @@ use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
 use std::str::FromStr;
-use tracing::{debug, info, trace};
 
 /// Open AI API client - https://platform.openai.com/overview
 #[derive(Parser)]

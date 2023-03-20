@@ -1,4 +1,4 @@
-use tracing::{debug, info};
+use rust_myscript::prelude::*;
 
 #[derive(Debug)]
 struct Entity {

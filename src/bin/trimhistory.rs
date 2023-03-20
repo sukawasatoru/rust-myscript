@@ -6,7 +6,6 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
-use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
 struct Opt {

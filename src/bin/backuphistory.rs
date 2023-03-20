@@ -5,9 +5,9 @@
 //! git commit -m "update"
 
 use clap::Parser;
+use rust_myscript::prelude::*;
 use std::path::PathBuf;
 use std::process::Command;
-use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
 #[command(name = "backuphistory")]

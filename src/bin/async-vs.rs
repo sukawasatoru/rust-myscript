@@ -2,7 +2,6 @@ use clap::Parser;
 use futures::StreamExt;
 use rust_myscript::prelude::*;
 use std::sync::Arc;
-use tracing::info;
 
 #[derive(Parser)]
 struct Opt {

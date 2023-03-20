@@ -1,10 +1,10 @@
 use clap::Parser;
+use rust_myscript::prelude::*;
 use std::fmt::Write;
 use std::io::prelude::*;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use strum::{EnumIter, IntoEnumIterator};
-use tracing::{debug, info, trace, warn};
 
 #[derive(Parser)]
 struct Opt {

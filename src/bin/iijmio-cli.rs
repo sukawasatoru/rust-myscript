@@ -32,7 +32,6 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::signal;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
-use tracing::{debug, info};
 use url::Url;
 
 #[tokio::main]

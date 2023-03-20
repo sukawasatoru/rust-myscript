@@ -5,7 +5,6 @@ use std::{
     io::{prelude::*, BufWriter},
     path::Path,
 };
-use tracing::info;
 
 #[derive(Default, Deserialize, Serialize)]
 struct Config {

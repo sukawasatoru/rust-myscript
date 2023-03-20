@@ -25,7 +25,6 @@ use std::sync::Arc;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
 use tinytable_rs::{column, Column, Table};
-use tracing::info;
 
 #[derive(Parser)]
 struct Opt {

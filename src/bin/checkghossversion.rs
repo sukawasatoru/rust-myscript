@@ -10,7 +10,6 @@ use std::{
     io::{prelude::*, BufWriter},
     path::{Path, PathBuf},
 };
-use tracing::{debug, info, trace};
 
 include!(concat!(env!("OUT_DIR"), "/checkghossversion_token.rs"));
 

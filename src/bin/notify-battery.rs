@@ -2,7 +2,6 @@ use clap::{value_parser, Parser};
 use regex::Regex;
 use rust_myscript::prelude::*;
 use std::io::BufRead;
-use tracing::{debug, info};
 
 struct Context {
     terminal_notifier_name: String,
