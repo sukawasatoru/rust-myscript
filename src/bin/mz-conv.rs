@@ -47,8 +47,11 @@ enum Command {
     },
 }
 
+#[allow(dead_code)]
 const DEFAULT_SIGNATURE: &str = "5250474d56000000";
+#[allow(dead_code)]
 const DEFAULT_VERSION: &str = "000301";
+#[allow(dead_code)]
 const DEFAULT_REMAIN: &str = "0000000000";
 const DEFAULT_HEADER_LEN: usize = 16;
 const PNG_HEADER_BYTES: [u8; DEFAULT_HEADER_LEN] = [
@@ -90,17 +93,15 @@ fn decrypt(input_path: &Path, output_path: &Path) -> Fallible<()> {
                 output_path.display()
             );
         }
-    } else {
-        if output_path.exists() {
-            if output_path.is_file() {
-                bail!(
-                    "specified output path has already directory: {}",
-                    output_path.display()
-                );
-            }
-        } else {
-            std::fs::create_dir_all(output_path)?;
+    } else if output_path.exists() {
+        if output_path.is_file() {
+            bail!(
+                "specified output path has already directory: {}",
+                output_path.display()
+            );
         }
+    } else {
+        std::fs::create_dir_all(output_path)?;
     }
 
     let output_path = output_path.canonicalize()?;
@@ -166,7 +167,7 @@ fn decrypt_png_file(input_path: &Path, output_path: &Path) -> Fallible<()> {
 
     let parent_dir = output_path.parent().context("no parent")?;
     if !parent_dir.exists() {
-        std::fs::create_dir_all(&parent_dir)?;
+        std::fs::create_dir_all(parent_dir)?;
     }
 
     let mut input = vec![];
