@@ -191,6 +191,7 @@ fn decrypt_png_file(input_path: &Path, output_path: &Path) -> Fallible<()> {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn generate_output_filepath_() {
         let input_dir = Path::new("/path/to/app");
