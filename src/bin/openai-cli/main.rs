@@ -45,6 +45,10 @@ enum Command {
     /// Start chat interaction - https://platform.openai.com/docs/api-reference/chat
     #[command()]
     Chat {
+        /// Disable colored escape sequence.
+        #[arg(long)]
+        disable_color: bool,
+
         /// Model to use
         #[arg(long)]
         model: Option<String>,
@@ -143,7 +147,10 @@ fn main() -> Fallible<()> {
     let opt = Opt::parse();
 
     match opt.cmd {
-        Command::Chat { model } => crate::feature::chat(context, opt.org_id, opt.api_key, model)?,
+        Command::Chat {
+            disable_color,
+            model,
+        } => crate::feature::chat(context, opt.org_id, opt.api_key, disable_color, model)?,
         Command::Edit { cmd } => match cmd {
             EditCommand::Translate { target } => {
                 edit_translate(context, opt.org_id, opt.api_key, target)?

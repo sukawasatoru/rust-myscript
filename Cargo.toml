@@ -19,6 +19,7 @@ bytes = "=1.4.0"
 chrono = { version = "=0.4.24", features = ["serde"] }
 clap = { version = "=4.2.1", features = ["derive", "env"] }
 clap_complete = "=4.2.0"
+crossterm = "=0.26.1"
 digest = "=0.10.6"
 directories = "=5.0.0"
 dotenv = "=0.15.0"

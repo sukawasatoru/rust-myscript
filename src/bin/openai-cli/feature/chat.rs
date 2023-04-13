@@ -18,21 +18,27 @@ use crate::data::repository::GetPreferencesRepository;
 use crate::functions::{prepare_headers, print_stdin_help};
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
+use crossterm::execute;
+use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
+use crossterm::tty::IsTty;
 use reqwest::blocking::Client;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
+use std::io::{stdin, stdout};
 use std::str::FromStr;
 
 pub fn chat<Ctx>(
     context: Ctx,
     arg_organization_id: Option<String>,
     arg_api_key: Option<String>,
+    disable_color: bool,
     model: Option<String>,
 ) -> Fallible<()>
 where
     Ctx: GetPreferencesRepository,
 {
+    let disable_color = disable_color || !stdin().is_tty();
     let default_headers = prepare_headers(&context, arg_organization_id, arg_api_key)?;
 
     let model = match model {
@@ -53,9 +59,9 @@ where
     loop {
         read_buf.clear();
 
-        eprintln!("user:");
+        println_color("user:", disable_color)?;
 
-        std::io::stdin().read_to_string(&mut read_buf)?;
+        stdin().read_to_string(&mut read_buf)?;
 
         let content = read_buf.trim().to_owned();
         if content.is_empty() {
@@ -67,7 +73,7 @@ where
             content,
         });
 
-        eprintln!("...");
+        println_color("...", disable_color)?;
 
         let ret = client
             .post("https://api.openai.com/v1/chat/completions")
@@ -86,9 +92,10 @@ where
         debug!(assistant = %serde_json::to_string_pretty(&ret)?);
 
         let answer = ret.choices.remove(0);
-        eprintln!("assistant:\n{}", answer.message.content.trim());
+        println_color("assistant:", disable_color)?;
+        eprintln!("{}", answer.message.content.trim());
         if answer.finish_reason.is_none() {
-            eprintln!("assistant: (in progress)");
+            println_color("assistant: (in progress)", disable_color)?;
         }
         // use first answer to chat conversations.
         messages.push(answer.message);
@@ -104,6 +111,23 @@ where
                 debug!("assistant[{}]: (in progress)", entry.index);
             }
         }
+    }
+
+    Ok(())
+}
+
+fn println_color(message: &str, disable_color: bool) -> Fallible<()> {
+    if disable_color {
+        eprintln!("{}", message);
+    } else {
+        execute!(
+            stdout(),
+            SetBackgroundColor(Color::Green),
+            SetForegroundColor(Color::White),
+            Print(message),
+            ResetColor,
+        )?;
+        eprintln!();
     }
 
     Ok(())
