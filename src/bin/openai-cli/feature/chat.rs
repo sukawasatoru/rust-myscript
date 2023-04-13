@@ -80,7 +80,7 @@ where
             .json(&ChatCompletionRequest {
                 messages: &messages,
                 max_tokens: Some(1000),
-                n: Some(2),
+                n: Some(1),
                 model: model.clone(),
                 ..Default::default()
             })
