@@ -24,8 +24,7 @@ use crossterm::tty::IsTty;
 use reqwest::blocking::Client;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::io::Read;
-use std::io::{stdin, stdout};
+use std::io::{stderr, stdin, Read};
 use std::str::FromStr;
 
 pub fn chat<Ctx>(
@@ -59,7 +58,7 @@ where
     loop {
         read_buf.clear();
 
-        println_color("user:", disable_color)?;
+        eprintln_color("user:", disable_color)?;
 
         stdin().read_to_string(&mut read_buf)?;
 
@@ -73,7 +72,7 @@ where
             content,
         });
 
-        println_color("...", disable_color)?;
+        eprintln_color("...", disable_color)?;
 
         let ret = client
             .post("https://api.openai.com/v1/chat/completions")
@@ -92,10 +91,10 @@ where
         debug!(assistant = %serde_json::to_string_pretty(&ret)?);
 
         let answer = ret.choices.remove(0);
-        println_color("assistant:", disable_color)?;
+        eprintln_color("assistant:", disable_color)?;
         eprintln!("{}", answer.message.content.trim());
         if answer.finish_reason.is_none() {
-            println_color("assistant: (in progress)", disable_color)?;
+            eprintln_color("assistant: (in progress)", disable_color)?;
         }
         // use first answer to chat conversations.
         messages.push(answer.message);
@@ -116,12 +115,12 @@ where
     Ok(())
 }
 
-fn println_color(message: &str, disable_color: bool) -> Fallible<()> {
+fn eprintln_color(message: &str, disable_color: bool) -> Fallible<()> {
     if disable_color {
         eprintln!("{}", message);
     } else {
         execute!(
-            stdout(),
+            stderr(),
             SetBackgroundColor(Color::Green),
             SetForegroundColor(Color::White),
             Print(message),
