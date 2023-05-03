@@ -1033,7 +1033,7 @@ mod tests {
     #[test]
     fn delete_messages() {
         let (source_chat1, source_chat1_messages) = create_common_data_set_chat1();
-        let (source_chat2, source_chat2_messages) = create_common_data_set_chat2();
+        let (source_chat2, _) = create_common_data_set_chat2();
         let (source_chat3, source_chat3_messages) = create_common_data_set_chat3();
 
         let mut conn = Connection::open_in_memory().unwrap();
