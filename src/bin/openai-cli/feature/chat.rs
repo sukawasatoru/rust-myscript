@@ -68,8 +68,6 @@ where
         model_id: get_serialized_string(&model)?,
     };
 
-    chat_repo.save_chat(&chat)?;
-
     print_stdin_help();
 
     loop {
