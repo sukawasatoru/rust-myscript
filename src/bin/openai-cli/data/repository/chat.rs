@@ -76,7 +76,14 @@ impl ChatRepositoryImpl {
             let transaction = conn.transaction()?;
             transaction.execute(&chat_table.create_sql(), [])?;
             transaction.execute(&message_table.create_sql(), [])?;
-            Self::save_user_version(&transaction, &user_version)?;
+            Self::save_user_version(
+                &transaction,
+                &SQLiteUserVersion::from((
+                    version.major.try_into()?,
+                    version.minor.try_into()?,
+                    version.patch.try_into()?,
+                )),
+            )?;
             transaction.commit()?;
         } else if version != &FileVersion::from(user_version) {
             bail!("migration required");

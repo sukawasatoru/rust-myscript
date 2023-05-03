@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-use crate::data::repository::GetPreferencesRepository;
+use crate::data::repository::{ChatRepository, GetChatRepository, GetPreferencesRepository};
+use crate::feature::chat::string_value_serializer::get_serialized_string;
 use crate::functions::{prepare_headers, print_stdin_help};
-use crate::model::MessageRole;
+use crate::model::{Chat, ChatID, Message, MessageID, MessageRole};
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use crossterm::execute;
@@ -27,6 +28,9 @@ use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{stderr, stdin, Read};
 use std::str::FromStr;
+use uuid::Uuid;
+
+mod string_value_serializer;
 
 pub fn chat<Ctx>(
     context: Ctx,
@@ -37,6 +41,7 @@ pub fn chat<Ctx>(
 ) -> Fallible<()>
 where
     Ctx: GetPreferencesRepository,
+    Ctx: GetChatRepository,
 {
     let disable_color = disable_color || !stdin().is_tty();
     let default_headers = prepare_headers(&context, arg_organization_id, arg_api_key)?;
@@ -54,6 +59,17 @@ where
     let mut messages = Vec::new();
     let mut read_buf = String::new();
 
+    let chat_repo = context.get_chat_repo();
+
+    let mut chat = Chat {
+        chat_id: ChatID(Uuid::new_v4()),
+        title: "".into(),
+        created_at: Utc::now(),
+        model_id: get_serialized_string(&model)?,
+    };
+
+    chat_repo.save_chat(&chat)?;
+
     print_stdin_help();
 
     loop {
@@ -67,6 +83,22 @@ where
         if content.is_empty() {
             break;
         }
+
+        let input_date_time = Utc::now();
+        if chat.title.is_empty() {
+            chat.title = content.clone();
+            chat_repo.save_chat(&chat)?;
+        }
+        chat_repo.save_messages(
+            &chat.chat_id,
+            &[Message {
+                message_id: MessageID(Uuid::new_v4()),
+                created_at: input_date_time,
+                updated_at: input_date_time,
+                role: MessageRole::User,
+                text: content.clone(),
+            }],
+        )?;
 
         messages.push(ChatCompletionMessage {
             role: MessageRole::User,
@@ -97,6 +129,19 @@ where
         if answer.finish_reason.is_none() {
             eprintln_color("assistant: (in progress)", disable_color)?;
         }
+
+        let response_date_time = Utc::now();
+        chat_repo.save_messages(
+            &chat.chat_id,
+            &[Message {
+                message_id: MessageID(Uuid::new_v4()),
+                created_at: response_date_time,
+                updated_at: response_date_time,
+                role: MessageRole::Assistant,
+                text: answer.message.content.clone(),
+            }],
+        )?;
+
         // use first answer to chat conversations.
         messages.push(answer.message);
 
@@ -160,7 +205,7 @@ struct ChatCompletionRequest<'a> {
 }
 
 /// ref. [ChatCompletionRequest]
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 enum ChatCompletionModel {
     #[serde(rename = "gpt-3.5-turbo")]
     GPT35Turbo,
@@ -234,4 +279,24 @@ enum ChatCompletionResponseChoiceFinishReason {
     Stop,
     Length,
     ContentFilter,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_completion_model_parse() {
+        use ChatCompletionModel::*;
+
+        let _ = match GPT35Turbo {
+            GPT35Turbo => (),
+            GPT35Turbo0301 => (),
+        };
+
+        for entry in [GPT35Turbo, GPT35Turbo0301] {
+            let serialized = get_serialized_string(&entry).unwrap();
+            assert_eq!(entry, serialized.parse::<ChatCompletionModel>().unwrap());
+        }
+    }
 }
