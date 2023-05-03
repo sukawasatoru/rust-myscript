@@ -40,3 +40,20 @@ impl<'a> std::fmt::Display for HexFormat<'a> {
         Ok(())
     }
 }
+
+pub struct StrVisitor;
+
+impl<'de> serde::de::Visitor<'de> for StrVisitor {
+    type Value = &'de str;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a borrowed string")
+    }
+
+    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(v)
+    }
+}

@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-pub use chat::{ChatRepository, ChatRepositoryImpl, GetChatRepository};
-pub use preferences::{GetPreferencesRepository, PreferencesRepository, PreferencesRepositoryImpl};
+pub use sqlite_user_version::SQLiteUserVersion;
 
-mod chat;
-mod preferences;
+mod sqlite_user_version;

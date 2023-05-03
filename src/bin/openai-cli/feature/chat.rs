@@ -16,6 +16,7 @@
 
 use crate::data::repository::GetPreferencesRepository;
 use crate::functions::{prepare_headers, print_stdin_help};
+use crate::model::MessageRole;
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
 use crossterm::execute;
@@ -191,14 +192,6 @@ impl Default for ChatCompletionModel {
 struct ChatCompletionMessage {
     role: MessageRole,
     content: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum MessageRole {
-    System,
-    User,
-    Assistant,
 }
 
 /// Data structure for https://platform.openai.com/docs/api-reference/chat/create

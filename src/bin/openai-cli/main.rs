@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
-use crate::data::repository::{GetPreferencesRepository, PreferencesRepositoryImpl};
+use crate::data::repository::{
+    ChatRepositoryImpl, GetChatRepository, GetPreferencesRepository, PreferencesRepositoryImpl,
+};
 use crate::feature::{edit_translate, get_setting, list_settings, set_setting};
+use crate::model::FileVersion;
 use clap::{Parser, Subcommand, ValueEnum};
 use rust_myscript::prelude::*;
 use std::fmt::{Display, Formatter};
@@ -119,7 +122,16 @@ impl Display for SettingsKey {
 }
 
 struct Context {
+    chat_repo: ChatRepositoryImpl,
     prefs_repo: PreferencesRepositoryImpl,
+}
+
+impl GetChatRepository for Context {
+    type Repo = ChatRepositoryImpl;
+
+    fn get_chat_repo(&self) -> &Self::Repo {
+        &self.chat_repo
+    }
 }
 
 impl GetPreferencesRepository for Context {
@@ -136,11 +148,14 @@ fn main() -> Fallible<()> {
 
     info!("hello");
 
+    let file_version = FileVersion::from([0, 1, 0]);
+
     let project_dir = directories::ProjectDirs::from("com", "sukawasatoru", "OpenAI CLI")
         .context("no valid home directory")?;
     let config_dir = project_dir.config_dir();
 
     let context = Context {
+        chat_repo: ChatRepositoryImpl::create_with_path(&file_version, project_dir.data_dir())?,
         prefs_repo: PreferencesRepositoryImpl::create_with_path(config_dir.to_owned()),
     };
 
