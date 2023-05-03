@@ -346,7 +346,7 @@ impl Drop for ChatRepositoryImpl {
             }
         };
 
-        match conn.execute("pragma analysis_limit=400", []) {
+        match conn.query_row("pragma analysis_limit=400", [], |_| Ok(())) {
             Ok(_) => {}
             Err(e) => {
                 warn!(?e, "pragma analysis_limit");
