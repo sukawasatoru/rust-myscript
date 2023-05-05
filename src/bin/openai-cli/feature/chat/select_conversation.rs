@@ -15,13 +15,14 @@
  */
 
 use crate::model::{Chat, ChatID, Message, MessageRole};
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, Local, Offset, TimeZone};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::{event, execute};
 use rust_myscript::prelude::*;
+use std::fmt::Display;
 use std::io;
 use std::io::prelude::*;
 use tracing::instrument;
@@ -188,10 +189,13 @@ impl<B: Backend + Write> Drop for SelectConversationTerminal<B> {
     }
 }
 
-fn conversation_view<B: Backend, Tz: TimeZone>(
+fn conversation_view<B: Backend, Tz, OFFSET>(
     f: &mut Frame<B>,
-    state: &mut ConversationViewState<Tz>,
-) {
+    state: &mut ConversationViewState<Tz, OFFSET>,
+) where
+    Tz: TimeZone<Offset = OFFSET>,
+    OFFSET: Offset + Display,
+{
     let chat_widget = List::new(
         state
             .items
@@ -206,11 +210,11 @@ fn conversation_view<B: Backend, Tz: TimeZone>(
                     Spans::from(Span::from(item.title.as_str())),
                     Spans::from(vec![
                         Span::from("created: "),
-                        Span::from(item.created_at.naive_local().to_string()),
+                        Span::from(item.created_at.to_rfc3339()),
                     ]),
                     Spans::from(vec![
                         Span::from("updated: "),
-                        Span::from(item.updated_at.naive_local().to_string()),
+                        Span::from(item.updated_at.to_rfc3339()),
                     ]),
                 ]),
             })
@@ -275,14 +279,22 @@ fn conversation_view<B: Backend, Tz: TimeZone>(
     f.render_stateful_widget(message_widget, chunks[1], &mut state.message_state);
 }
 
-struct ConversationViewState<'a, Tz: TimeZone> {
-    items: Vec<ConversationType<'a, Tz>>,
+struct ConversationViewState<'a, Tz, OFFSET>
+where
+    Tz: TimeZone<Offset = OFFSET>,
+    OFFSET: Offset + Display,
+{
+    items: Vec<ConversationType<'a, Tz, OFFSET>>,
     chat_state: ListState,
     message_state: ListState,
 }
 
-impl<'a, Tz: TimeZone> ConversationViewState<'a, Tz> {
-    fn new(items: Vec<ConversationType<'a, Tz>>) -> Self {
+impl<'a, Tz, OFFSET> ConversationViewState<'a, Tz, OFFSET>
+where
+    Tz: TimeZone<Offset = OFFSET>,
+    OFFSET: Offset + Display,
+{
+    fn new(items: Vec<ConversationType<'a, Tz, OFFSET>>) -> Self {
         let mut state = Self {
             items,
             chat_state: Default::default(),
@@ -296,7 +308,11 @@ impl<'a, Tz: TimeZone> ConversationViewState<'a, Tz> {
 }
 
 #[derive(Debug)]
-struct ConversationHistory<'a, Tz: TimeZone> {
+struct ConversationHistory<'a, Tz, OFFSET>
+where
+    Tz: TimeZone<Offset = OFFSET>,
+    OFFSET: Offset + Display,
+{
     id: ChatID,
     title: String,
     created_at: DateTime<Tz>,
@@ -305,7 +321,11 @@ struct ConversationHistory<'a, Tz: TimeZone> {
 }
 
 #[derive(Debug)]
-enum ConversationType<'a, Tz: TimeZone> {
+enum ConversationType<'a, Tz, OFFSET>
+where
+    Tz: TimeZone<Offset = OFFSET>,
+    OFFSET: Offset + Display,
+{
     New,
-    Continue(ConversationHistory<'a, Tz>),
+    Continue(ConversationHistory<'a, Tz, OFFSET>),
 }
