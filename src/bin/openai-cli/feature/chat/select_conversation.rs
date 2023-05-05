@@ -30,7 +30,7 @@ use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Constraint, Direction, Layout};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
+use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use tui::{Frame, Terminal};
 
 pub enum SelectedType {
@@ -234,34 +234,34 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
     )
     .highlight_symbol(">> ");
 
-    let message_widget = List::new(
-        match &state.items[state.chat_state.selected().expect("chat_state.selected")] {
-            ConversationType::New => vec![],
-            ConversationType::Continue(data) => data
-                .messages
-                .iter()
-                .map(|data| {
-                    ListItem::new(vec![
-                        Spans::from(Span::styled(
-                            match data.role {
-                                MessageRole::System => "system:",
-                                MessageRole::User => "user:",
-                                MessageRole::Assistant => "assistant:",
-                            },
-                            Style::default()
-                                .bg(Color::Green)
-                                .fg(Color::White)
-                                .add_modifier(Modifier::ITALIC),
-                        )),
-                        Spans::from(data.text.as_str()),
-                    ])
-                })
-                .collect::<Vec<_>>(),
-        },
-    )
+    let selected_chat = &state.items[state.chat_state.selected().expect("chat_state.selected")];
+
+    let message_list_widget = List::new(match selected_chat {
+        ConversationType::New => vec![],
+        ConversationType::Continue(data) => data
+            .messages
+            .iter()
+            .map(|data| {
+                ListItem::new(vec![
+                    Spans::from(Span::styled(
+                        match data.role {
+                            MessageRole::System => "system:",
+                            MessageRole::User => "user:",
+                            MessageRole::Assistant => "assistant:",
+                        },
+                        Style::default()
+                            .bg(Color::Green)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::ITALIC),
+                    )),
+                    Spans::from(data.text.as_str()),
+                ])
+            })
+            .collect::<Vec<_>>(),
+    })
     .block(
         Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::ALL - Borders::BOTTOM)
             .border_type(BorderType::Rounded),
     )
     .highlight_style(
@@ -271,12 +271,36 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
             .add_modifier(Modifier::BOLD),
     );
 
+    let message_content_widget = Paragraph::new(match selected_chat {
+        ConversationType::New => "",
+        ConversationType::Continue(data) => match state.message_state.selected() {
+            Some(message_index) => data.messages[message_index].text.as_str(),
+            None => "",
+        },
+    })
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded),
+    )
+    .wrap(Wrap { trim: true });
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
         .split(f.size());
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+
     f.render_stateful_widget(chat_widget, chunks[0], &mut state.chat_state);
-    f.render_stateful_widget(message_widget, chunks[1], &mut state.message_state);
+    f.render_stateful_widget(
+        message_list_widget,
+        right_chunks[0],
+        &mut state.message_state,
+    );
+    f.render_widget(message_content_widget, right_chunks[1]);
 }
 
 struct ConversationViewState<'a, Tz, OFFSET>
