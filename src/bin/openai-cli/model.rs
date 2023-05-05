@@ -27,7 +27,7 @@ pub struct Settings {
     pub api_key: Option<String>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatID(pub Uuid);
 
 #[derive(Debug, Eq, PartialEq)]
@@ -50,7 +50,7 @@ pub struct Message {
     pub text: String,
 }
 
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     System,

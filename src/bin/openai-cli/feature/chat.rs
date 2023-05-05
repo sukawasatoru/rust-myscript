@@ -15,6 +15,7 @@
  */
 
 use crate::data::repository::{ChatRepository, GetChatRepository, GetPreferencesRepository};
+use crate::feature::chat::select_conversation::{select_conversation, SelectedType};
 use crate::feature::chat::string_value_serializer::get_serialized_string;
 use crate::functions::{prepare_headers, print_stdin_help};
 use crate::model::{Chat, ChatID, Message, MessageID, MessageRole};
@@ -30,6 +31,7 @@ use std::io::{stderr, stdin, Read};
 use std::str::FromStr;
 use uuid::Uuid;
 
+mod select_conversation;
 mod string_value_serializer;
 
 pub fn chat<Ctx>(
@@ -44,8 +46,6 @@ where
     Ctx: GetChatRepository,
 {
     let disable_color = disable_color || !stdin().is_tty();
-    let default_headers = prepare_headers(&context, arg_organization_id, arg_api_key)?;
-
     let model = match model {
         Some(data) => data.parse::<ChatCompletionModel>()?,
         None => Default::default(),
@@ -53,110 +53,165 @@ where
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(60 * 5))
-        .default_headers(default_headers)
+        .default_headers(prepare_headers(&context, arg_organization_id, arg_api_key)?)
         .build()?;
 
-    let mut messages = Vec::new();
-    let mut read_buf = String::new();
-
     let chat_repo = context.get_chat_repo();
-
-    let mut chat = Chat {
-        chat_id: ChatID(Uuid::new_v4()),
-        title: "".into(),
-        created_at: Utc::now(),
-        model_id: get_serialized_string(&model)?,
+    let mut chat_histories = chat_repo.find_chat_all()?;
+    chat_histories.sort_by_key(|(chat, messages)| {
+        messages
+            .last()
+            .map(|data| data.updated_at)
+            .unwrap_or(chat.created_at)
+    });
+    chat_histories.reverse();
+    let (mut chat, mut messages) = match select_conversation(&chat_histories)? {
+        SelectedType::New => (
+            Chat {
+                chat_id: ChatID(Uuid::new_v4()),
+                title: "".into(),
+                created_at: Utc::now(),
+                model_id: get_serialized_string(&model)?,
+            },
+            Vec::<ChatCompletionMessage>::new(),
+        ),
+        SelectedType::History(selected) => {
+            let (chat, messages) = chat_histories
+                .into_iter()
+                .find(|(chat, _)| chat.chat_id == selected)
+                .expect("not found");
+            let messages = messages
+                .into_iter()
+                .map(|data| ChatCompletionMessage {
+                    role: data.role,
+                    content: data.text,
+                })
+                .collect();
+            (chat, messages)
+        }
+        SelectedType::Cancelled => return Ok(()),
     };
 
     print_stdin_help();
 
-    loop {
-        read_buf.clear();
-
-        eprintln_color("user:", disable_color)?;
-
-        stdin().read_to_string(&mut read_buf)?;
-
-        let content = read_buf.trim().to_owned();
-        if content.is_empty() {
-            break;
-        }
-
-        let input_date_time = Utc::now();
-        if chat.title.is_empty() {
-            chat.title = content.clone();
-            chat_repo.save_chat(&chat)?;
-        }
-        chat_repo.save_messages(
-            &chat.chat_id,
-            &[Message {
-                message_id: MessageID(Uuid::new_v4()),
-                created_at: input_date_time,
-                updated_at: input_date_time,
-                role: MessageRole::User,
-                text: content.clone(),
-            }],
-        )?;
-
-        messages.push(ChatCompletionMessage {
-            role: MessageRole::User,
-            content,
-        });
-
-        eprintln_color("...", disable_color)?;
-
-        let ret = client
-            .post("https://api.openai.com/v1/chat/completions")
-            .json(&ChatCompletionRequest {
-                messages: &messages,
-                max_tokens: Some(1000),
-                n: Some(1),
-                model: model.clone(),
-                ..Default::default()
-            })
-            .send()?
-            .error_for_status()?
-            .text()?;
-        trace!(%ret);
-        let mut ret = serde_json::from_str::<ChatCompletionResponse>(&ret)?;
-        debug!(assistant = %serde_json::to_string_pretty(&ret)?);
-
-        let answer = ret.choices.remove(0);
-        eprintln_color("assistant:", disable_color)?;
-        eprintln!("{}", answer.message.content.trim());
-        if answer.finish_reason.is_none() {
-            eprintln_color("assistant: (in progress)", disable_color)?;
-        }
-
-        let response_date_time = Utc::now();
-        chat_repo.save_messages(
-            &chat.chat_id,
-            &[Message {
-                message_id: MessageID(Uuid::new_v4()),
-                created_at: response_date_time,
-                updated_at: response_date_time,
-                role: MessageRole::Assistant,
-                text: answer.message.content.clone(),
-            }],
-        )?;
-
-        // use first answer to chat conversations.
-        messages.push(answer.message);
-
-        // other answers.
-        for entry in &ret.choices {
-            debug!(
-                "assistant[{}]:{}",
-                entry.index,
-                entry.message.content.trim(),
-            );
-            if entry.finish_reason.is_none() {
-                debug!("assistant[{}]: (in progress)", entry.index);
+    // replay histories.
+    for entry in &messages {
+        match entry.role {
+            MessageRole::System => (),
+            MessageRole::User => {
+                eprintln_color("user:", disable_color)?;
+                eprintln!("{}", entry.content.trim());
+            }
+            MessageRole::Assistant => {
+                eprintln_color("assistant:", disable_color)?;
+                eprintln!("{}", entry.content.trim());
             }
         }
     }
 
-    Ok(())
+    let mut read_buf = String::new();
+
+    loop {
+        let chat_completion_message = match messages.last() {
+            Some(data) if data.role == MessageRole::User => {
+                request_message(client.clone(), disable_color, model.clone(), &messages)?
+            }
+            Some(_) | None => {
+                let chat_completion_message = match read_user_input(&mut read_buf, disable_color)? {
+                    Some(data) => data,
+                    None => return Ok(()),
+                };
+
+                if chat.title.is_empty() {
+                    chat.title = chat_completion_message.content.clone();
+                    chat_repo.save_chat(&chat)?;
+                }
+
+                chat_completion_message
+            }
+        };
+
+        let created_at = Utc::now();
+        chat_repo.save_messages(
+            &chat.chat_id,
+            &[Message {
+                message_id: MessageID(Uuid::new_v4()),
+                created_at,
+                updated_at: created_at,
+                role: chat_completion_message.role.clone(),
+                text: chat_completion_message.content.clone(),
+            }],
+        )?;
+
+        messages.push(chat_completion_message);
+    }
+}
+
+fn read_user_input(
+    read_buf: &mut String,
+    disable_color: bool,
+) -> Fallible<Option<ChatCompletionMessage>> {
+    read_buf.clear();
+
+    eprintln_color("user:", disable_color)?;
+
+    stdin().read_to_string(read_buf)?;
+
+    let content = read_buf.trim().to_owned();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(ChatCompletionMessage {
+        role: MessageRole::User,
+        content,
+    }))
+}
+
+fn request_message(
+    client: Client,
+    disable_color: bool,
+    model: ChatCompletionModel,
+    messages: &[ChatCompletionMessage],
+) -> Fallible<ChatCompletionMessage> {
+    eprintln_color("...", disable_color)?;
+
+    let ret = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .json(&ChatCompletionRequest {
+            messages,
+            max_tokens: Some(1000),
+            n: Some(1),
+            model,
+            ..Default::default()
+        })
+        .send()?
+        .error_for_status()?
+        .text()?;
+    trace!(%ret);
+    let mut ret = serde_json::from_str::<ChatCompletionResponse>(&ret)?;
+    debug!(assistant = %serde_json::to_string_pretty(&ret)?);
+
+    let answer = ret.choices.remove(0);
+    eprintln_color("assistant:", disable_color)?;
+    eprintln!("{}", answer.message.content.trim());
+    if answer.finish_reason.is_none() {
+        eprintln_color("assistant: (in progress)", disable_color)?;
+    }
+
+    // other answers.
+    for entry in &ret.choices {
+        debug!(
+            "assistant[{}]:{}",
+            entry.index,
+            entry.message.content.trim(),
+        );
+        if entry.finish_reason.is_none() {
+            debug!("assistant[{}]: (in progress)", entry.index);
+        }
+    }
+
+    Ok(answer.message)
 }
 
 fn eprintln_color(message: &str, disable_color: bool) -> Fallible<()> {
