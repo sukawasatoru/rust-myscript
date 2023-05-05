@@ -29,7 +29,7 @@ use tracing::instrument;
 use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Constraint, Direction, Layout};
 use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
+use tui::text::{Span, Spans, Text};
 use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use tui::{Frame, Terminal};
 
@@ -201,19 +201,15 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
             .items
             .iter()
             .map(|item| match item {
-                ConversationType::New => ListItem::new(vec![
-                    Spans::from(Span::from("Start new conversation")),
-                    Spans::default(),
-                    Spans::default(),
-                ]),
+                ConversationType::New => ListItem::new(Text::from("Start new conversation\n\n\n")),
                 ConversationType::Continue(item) => ListItem::new(vec![
                     Spans::from(Span::from(item.title.as_str())),
                     Spans::from(vec![
-                        Span::from("created: "),
+                        Span::from("  created: "),
                         Span::from(item.created_at.to_rfc3339()),
                     ]),
                     Spans::from(vec![
-                        Span::from("updated: "),
+                        Span::from("  updated: "),
                         Span::from(item.updated_at.to_rfc3339()),
                     ]),
                 ]),
@@ -242,20 +238,31 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
             .messages
             .iter()
             .map(|data| {
-                ListItem::new(vec![
-                    Spans::from(Span::styled(
-                        match data.role {
-                            MessageRole::System => "system:",
-                            MessageRole::User => "user:",
-                            MessageRole::Assistant => "assistant:",
-                        },
-                        Style::default()
-                            .bg(Color::Green)
-                            .fg(Color::White)
-                            .add_modifier(Modifier::ITALIC),
-                    )),
-                    Spans::from(data.text.as_str()),
-                ])
+                ListItem::new(Spans::from(match data.role {
+                    MessageRole::System => {
+                        vec![
+                            Span::styled(
+                                "system:",
+                                Style::default().add_modifier(Modifier::UNDERLINED),
+                            ),
+                            Span::from("    "),
+                            Span::from(data.text.as_str()),
+                        ]
+                    }
+                    MessageRole::User => vec![
+                        Span::styled("user:", Style::default().add_modifier(Modifier::UNDERLINED)),
+                        Span::from("      "),
+                        Span::from(data.text.as_str()),
+                    ],
+                    MessageRole::Assistant => vec![
+                        Span::styled(
+                            "assistant:",
+                            Style::default().add_modifier(Modifier::UNDERLINED),
+                        ),
+                        Span::from(" "),
+                        Span::from(data.text.as_str()),
+                    ],
+                }))
             })
             .collect::<Vec<_>>(),
     })
