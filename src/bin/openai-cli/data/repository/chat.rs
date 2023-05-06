@@ -65,29 +65,58 @@ impl ChatRepositoryImpl {
         Self::create_with_conn(version, Connection::open(db_dir_path.join("chat.db"))?)
     }
 
+    #[instrument(skip(conn))]
     fn create_with_conn(version: &FileVersion, mut conn: Connection) -> Fallible<Self> {
         let chat_table = ChatTable::default();
         let message_table = MessageTable::create(&chat_table);
 
         conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
-        let user_version = Self::retrieve_user_version(&conn)?;
+
+        let transaction = conn.transaction()?;
+        let user_version = Self::retrieve_user_version(&transaction)?;
 
         if user_version == SQLiteUserVersion::from(0) {
-            let transaction = conn.transaction()?;
+            info!("initialize db");
+
             transaction.execute(&chat_table.create_sql(), [])?;
             transaction.execute(&message_table.create_sql(), [])?;
-            Self::save_user_version(
-                &transaction,
-                &SQLiteUserVersion::from((
-                    version.major.try_into()?,
-                    version.minor.try_into()?,
-                    version.patch.try_into()?,
-                )),
-            )?;
-            transaction.commit()?;
-        } else if version != &FileVersion::from(user_version) {
-            bail!("migration required");
+            for index in chat_table.create_index() {
+                transaction.execute(&index, [])?;
+            }
+
+            for index in message_table.create_index() {
+                transaction.execute(&index, [])?;
+            }
+        } else {
+            #[allow(clippy::collapsible_else_if)]
+            if user_version < "0.1.1".parse()? {
+                info!("migrate to v0.1.1");
+
+                transaction.execute(
+                    "CREATE INDEX index_chat_created_at ON chat (created_at)",
+                    [],
+                )?;
+                transaction.execute(
+                    "CREATE INDEX index_message_created_at ON message (created_at)",
+                    [],
+                )?;
+            }
         }
+
+        Self::save_user_version(
+            &transaction,
+            &SQLiteUserVersion::from((
+                version.major.try_into()?,
+                version.minor.try_into()?,
+                version.patch.try_into()?,
+            )),
+        )?;
+
+        if version != &FileVersion::from(Self::retrieve_user_version(&transaction)?) {
+            bail!("need to update file version: {}", version);
+        }
+
+        transaction.commit()?;
 
         conn.execute("PRAGMA foreign_keys = ON", [])?;
 
@@ -367,6 +396,7 @@ struct ChatTable {
     created_at: Arc<Column>,
     model_id: Arc<Column>,
     columns: Vec<Arc<Column>>,
+    indexes: Vec<(String, Vec<Arc<Column>>)>,
 }
 
 impl Default for ChatTable {
@@ -380,7 +410,8 @@ impl Default for ChatTable {
             title: title.clone(),
             created_at: created_at.clone(),
             model_id: model_id.clone(),
-            columns: vec![chat_id, title, created_at, model_id],
+            columns: vec![chat_id, title, created_at.clone(), model_id],
+            indexes: vec![("index_chat_created_at".into(), vec![created_at])],
         }
     }
 }
@@ -393,6 +424,10 @@ impl Table for ChatTable {
     fn columns(&self) -> &[Arc<Column>] {
         &self.columns
     }
+
+    fn indexes(&self) -> &[(String, Vec<Arc<Column>>)] {
+        &self.indexes
+    }
 }
 
 struct MessageTable {
@@ -403,6 +438,7 @@ struct MessageTable {
     role: Arc<Column>,
     text: Arc<Column>,
     columns: Vec<Arc<Column>>,
+    indexes: Vec<(String, Vec<Arc<Column>>)>,
 }
 
 impl MessageTable {
@@ -423,7 +459,7 @@ impl MessageTable {
             columns: vec![
                 message_id,
                 chat_id.clone(),
-                created_at,
+                created_at.clone(),
                 updated_at,
                 role,
                 text,
@@ -435,6 +471,7 @@ impl MessageTable {
                     [ON_DELETE, CASCADE, DEFERRABLE_INITIALLY_DEFERRED],
                 ),
             ],
+            indexes: vec![("index_message_created_at".into(), vec![created_at])],
         }
     }
 }
@@ -446,6 +483,10 @@ impl Table for MessageTable {
 
     fn columns(&self) -> &[Arc<Column>] {
         &self.columns
+    }
+
+    fn indexes(&self) -> &[(String, Vec<Arc<Column>>)] {
+        &self.indexes
     }
 }
 
@@ -1100,5 +1141,15 @@ mod tests {
             0,
             query_messages(&mut repo.conn.lock().unwrap(), &source_chat3.chat_id).len()
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn display_indexes() {
+        let chat = ChatTable::default();
+        let message = MessageTable::create(&chat);
+
+        dbg!(chat.create_index());
+        dbg!(message.create_index());
     }
 }

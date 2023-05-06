@@ -152,7 +152,7 @@ fn main() -> Fallible<()> {
 
     info!("hello");
 
-    let file_version = FileVersion::from([0, 1, 0]);
+    let file_version = FileVersion::from([0, 1, 1]);
 
     let project_dir = directories::ProjectDirs::from("com", "sukawasatoru", "OpenAI CLI")
         .context("no valid home directory")?;

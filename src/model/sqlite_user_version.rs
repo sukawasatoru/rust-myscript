@@ -1,5 +1,5 @@
 /*
- * Copyright 2020, 2021, 2022 sukawasatoru
+ * Copyright 2020, 2021, 2022, 2023 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
+use std::cmp::Ordering;
 
 #[derive(Clone, Eq, Debug, PartialEq)]
 pub struct SQLiteUserVersion {
@@ -82,6 +83,27 @@ impl From<SQLiteUserVersion> for u32 {
 impl std::fmt::Display for SQLiteUserVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+impl PartialOrd<SQLiteUserVersion> for SQLiteUserVersion {
+    fn partial_cmp(&self, other: &SQLiteUserVersion) -> Option<Ordering> {
+        let major = self.major.cmp(&other.major);
+        if major != Ordering::Equal {
+            return Some(major);
+        }
+
+        let minor = self.minor.cmp(&other.minor);
+        if minor != Ordering::Equal {
+            return Some(minor);
+        }
+
+        let patch = self.patch.cmp(&other.patch);
+        if patch != Ordering::Equal {
+            return Some(patch);
+        }
+
+        Some(Ordering::Equal)
     }
 }
 
