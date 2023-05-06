@@ -52,6 +52,10 @@ enum Command {
         #[arg(long)]
         disable_color: bool,
 
+        /// Disable ChatGPT like response.
+        #[arg(long)]
+        disable_stream: bool,
+
         /// Model to use
         #[arg(long)]
         model: Option<String>,
@@ -164,8 +168,16 @@ fn main() -> Fallible<()> {
     match opt.cmd {
         Command::Chat {
             disable_color,
+            disable_stream,
             model,
-        } => crate::feature::chat(context, opt.org_id, opt.api_key, disable_color, model)?,
+        } => crate::feature::chat(
+            context,
+            opt.org_id,
+            opt.api_key,
+            disable_color,
+            disable_stream,
+            model,
+        )?,
         Command::Edit { cmd } => match cmd {
             EditCommand::Translate { target } => {
                 edit_translate(context, opt.org_id, opt.api_key, target)?

@@ -27,8 +27,10 @@ use crossterm::tty::IsTty;
 use reqwest::blocking::Client;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::io::{stderr, stdin, Read};
+use std::io::prelude::*;
+use std::io::{stderr, stdin, stdout, BufReader, Read};
 use std::str::FromStr;
+use tracing::instrument;
 use uuid::Uuid;
 
 mod select_conversation;
@@ -39,6 +41,7 @@ pub fn chat<Ctx>(
     arg_organization_id: Option<String>,
     arg_api_key: Option<String>,
     disable_color: bool,
+    disable_stream: bool,
     model: Option<String>,
 ) -> Fallible<()>
 where
@@ -114,7 +117,11 @@ where
     loop {
         let chat_completion_message = match messages.last() {
             Some(data) if data.role == MessageRole::User => {
-                request_message(client.clone(), disable_color, model.clone(), &messages)?
+                if disable_stream {
+                    request_message(client.clone(), disable_color, model.clone(), &messages)?
+                } else {
+                    request_stream_message(client.clone(), disable_color, model.clone(), &messages)?
+                }
             }
             Some(_) | None => {
                 let chat_completion_message = match read_user_input(&mut read_buf, disable_color)? {
@@ -212,6 +219,104 @@ fn request_message(
     }
 
     Ok(answer.message)
+}
+
+#[instrument(skip_all)]
+fn request_stream_message(
+    client: Client,
+    disable_color: bool,
+    model: ChatCompletionModel,
+    messages: &[ChatCompletionMessage],
+) -> Fallible<ChatCompletionMessage> {
+    eprintln_color("...", disable_color)?;
+
+    let res = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .json(&ChatCompletionRequest {
+            messages,
+            stream: Some(true),
+            max_tokens: Some(1000),
+            model,
+            ..Default::default()
+        })
+        .send()?
+        .error_for_status()?;
+
+    let mut finish_reason = Option::<String>::None;
+    let mut ret_message = String::new();
+    let mut res = BufReader::new(res);
+    let mut line = Vec::<u8>::new();
+    loop {
+        line.clear();
+        match res.read_until(b'\n', &mut line) {
+            Ok(0) => {
+                warn!("EOF w/ new line");
+                break;
+            }
+            Ok(_) => {
+                if line.ends_with(b"\n") {
+                    if line.starts_with(b"data: [DONE]") {
+                        debug!("done");
+                        break;
+                    } else if line.starts_with(b"data:") {
+                        let serialized =
+                            serde_json::from_slice::<serde_json::Value>(&line["data:".len()..])
+                                .with_context(|| format!("{:?}", line))?;
+                        debug!(?serialized, "match");
+                        let choice = serialized
+                            .get("choices")
+                            .context("{}.choices")?
+                            .get(0)
+                            .context("{}.choices[0]")?;
+                        finish_reason = choice
+                            .get("finish_reason")
+                            .context("{}.choices[0].finish_reason")?
+                            .as_str()
+                            .map(str::to_owned);
+                        match choice
+                            .get("delta")
+                            .context("{}.choices[0].delta")?
+                            .get("content")
+                        {
+                            Some(data) => {
+                                if ret_message.is_empty() {
+                                    eprintln_color("assistant:", disable_color)?;
+                                }
+
+                                let content =
+                                    data.as_str().context("{}.choices[0].delta.content")?;
+                                print!("{}", content);
+                                stdout().flush()?;
+
+                                ret_message += content;
+                            }
+                            None => debug!("{{}}.choices[0].delta.content is null"),
+                        }
+                    } else {
+                        debug!(?line, "ignore");
+                    }
+                } else {
+                    debug!("EOF w/o new line");
+                    break;
+                }
+            }
+            Err(e) => panic!("reader error: {:?}", e),
+        }
+    }
+
+    if ret_message.is_empty() {
+        bail!("ret is null. finish_reason: {:?}", finish_reason);
+    } else {
+        println!();
+        if finish_reason != Some("stop".to_owned()) {
+            info!(?finish_reason, "finish_reason != stop");
+        }
+
+        Ok(ChatCompletionMessage {
+            role: MessageRole::Assistant,
+            content: ret_message,
+        })
+    }
 }
 
 fn eprintln_color(message: &str, disable_color: bool) -> Fallible<()> {
