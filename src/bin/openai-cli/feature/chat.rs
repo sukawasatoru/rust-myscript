@@ -192,9 +192,17 @@ fn request_message(
             model,
             ..Default::default()
         })
-        .send()?
-        .error_for_status()?
-        .text()?;
+        .send()?;
+    if let Err(e) = ret.error_for_status_ref() {
+        return Err(e).with_context(|| {
+            format!(
+                "failed to request: {}",
+                ret.text().unwrap_or_else(|e| format!("{:?}", e)),
+            )
+        });
+    }
+
+    let ret = ret.text()?;
     trace!(%ret);
     let mut ret = serde_json::from_str::<ChatCompletionResponse>(&ret)?;
     debug!(assistant = %serde_json::to_string_pretty(&ret)?);
@@ -239,8 +247,15 @@ fn request_stream_message(
             model,
             ..Default::default()
         })
-        .send()?
-        .error_for_status()?;
+        .send()?;
+    if let Err(e) = res.error_for_status_ref() {
+        return Err(e).with_context(|| {
+            format!(
+                "failed to request: {}",
+                res.text().unwrap_or_else(|e| format!("{:?}", e)),
+            )
+        });
+    }
 
     let mut finish_reason = Option::<String>::None;
     let mut ret_message = String::new();
