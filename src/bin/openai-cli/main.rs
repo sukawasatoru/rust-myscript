@@ -148,7 +148,24 @@ impl GetPreferencesRepository for Context {
 
 fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
-    tracing_subscriber::fmt::init();
+
+    if cfg!(target_os = "macos") {
+        let log_dir_path = directories::UserDirs::new()
+            .context("no valid home directory")?
+            .home_dir()
+            .join("Library/Logs/com.sukawasatoru.OpenAI CLI");
+        let (non_blocking, guard) = tracing_appender::non_blocking(
+            tracing_appender::rolling::hourly(log_dir_path, "openai-cli"),
+        );
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(non_blocking)
+            .init();
+
+        std::mem::forget(guard);
+    } else {
+        tracing_subscriber::fmt::init();
+    };
 
     info!("hello");
 

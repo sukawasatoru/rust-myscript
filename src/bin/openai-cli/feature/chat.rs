@@ -28,7 +28,7 @@ use reqwest::blocking::Client;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::prelude::*;
-use std::io::{stderr, stdin, stdout, BufReader, Read};
+use std::io::{stdin, stdout, BufReader, Read};
 use std::str::FromStr;
 use tracing::instrument;
 use uuid::Uuid;
@@ -102,12 +102,12 @@ where
         match entry.role {
             MessageRole::System => (),
             MessageRole::User => {
-                eprintln_color("user:", disable_color)?;
-                eprintln!("{}", entry.content.trim());
+                println_color("user:", disable_color)?;
+                println!("{}", entry.content.trim());
             }
             MessageRole::Assistant => {
-                eprintln_color("assistant:", disable_color)?;
-                eprintln!("{}", entry.content.trim());
+                println_color("assistant:", disable_color)?;
+                println!("{}", entry.content.trim());
             }
         }
     }
@@ -160,7 +160,7 @@ fn read_user_input(
 ) -> Fallible<Option<ChatCompletionMessage>> {
     read_buf.clear();
 
-    eprintln_color("user:", disable_color)?;
+    println_color("user:", disable_color)?;
 
     stdin().read_to_string(read_buf)?;
 
@@ -181,7 +181,7 @@ fn request_message(
     model: ChatCompletionModel,
     messages: &[ChatCompletionMessage],
 ) -> Fallible<ChatCompletionMessage> {
-    eprintln_color("...", disable_color)?;
+    println_color("...", disable_color)?;
 
     let ret = client
         .post("https://api.openai.com/v1/chat/completions")
@@ -208,10 +208,10 @@ fn request_message(
     debug!(assistant = %serde_json::to_string_pretty(&ret)?);
 
     let answer = ret.choices.remove(0);
-    eprintln_color("assistant:", disable_color)?;
-    eprintln!("{}", answer.message.content.trim());
+    println_color("assistant:", disable_color)?;
+    println!("{}", answer.message.content.trim());
     if answer.finish_reason.is_none() {
-        eprintln_color("assistant: (in progress)", disable_color)?;
+        println_color("assistant: (in progress)", disable_color)?;
     }
 
     // other answers.
@@ -236,7 +236,7 @@ fn request_stream_message(
     model: ChatCompletionModel,
     messages: &[ChatCompletionMessage],
 ) -> Fallible<ChatCompletionMessage> {
-    eprintln_color("...", disable_color)?;
+    println_color("...", disable_color)?;
 
     let res = client
         .post("https://api.openai.com/v1/chat/completions")
@@ -295,7 +295,7 @@ fn request_stream_message(
                         {
                             Some(data) => {
                                 if ret_message.is_empty() {
-                                    eprintln_color("assistant:", disable_color)?;
+                                    println_color("assistant:", disable_color)?;
                                 }
 
                                 let content =
@@ -334,18 +334,18 @@ fn request_stream_message(
     }
 }
 
-fn eprintln_color(message: &str, disable_color: bool) -> Fallible<()> {
+fn println_color(message: &str, disable_color: bool) -> Fallible<()> {
     if disable_color {
-        eprintln!("{}", message);
+        println!("{}", message);
     } else {
         execute!(
-            stderr(),
+            stdout(),
             SetBackgroundColor(Color::Green),
             SetForegroundColor(Color::White),
             Print(message),
             ResetColor,
         )?;
-        eprintln!();
+        println!();
     }
 
     Ok(())
