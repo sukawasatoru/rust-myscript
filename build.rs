@@ -13,6 +13,8 @@ fn main() -> anyhow::Result<()> {
         e
     })?;
 
+    checksqlite()?;
+
     Ok(())
 }
 
@@ -83,5 +85,18 @@ fn pwnedpassword() -> anyhow::Result<()> {
             anyhow::bail!("Need to install the sqlite3 via \"{}\"", command_help)
         }
     }
+    Ok(())
+}
+
+fn checksqlite() -> anyhow::Result<()> {
+    if env::var("CARGO_CFG_WINDOWS").is_ok() {
+        // bundled-windows.
+        return Ok(());
+    }
+
+    pkg_config::Config::new()
+        // for upsert.
+        .atleast_version("3.24.0")
+        .probe("sqlite3")?;
     Ok(())
 }
