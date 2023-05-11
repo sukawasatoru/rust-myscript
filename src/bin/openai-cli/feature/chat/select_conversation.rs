@@ -57,9 +57,9 @@ pub fn select_conversation(conversations: &[(Chat, Vec<Message>)]) -> Fallible<S
         })
     }));
 
+    let terminal = Terminal::new(CrosstermBackend::new(io::stderr()))?;
     enable_raw_mode()?;
-    let mut terminal =
-        SelectConversationTerminal(Terminal::new(CrosstermBackend::new(io::stderr()))?);
+    let mut terminal = SelectConversationTerminal(terminal);
     execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
 
     let mut state = ConversationViewState::new(items);
