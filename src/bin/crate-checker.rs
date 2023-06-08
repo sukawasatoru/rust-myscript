@@ -149,7 +149,7 @@ async fn main() -> Fallible<()> {
 #[derive(Deserialize)]
 struct CargoFile {
     #[serde(rename = "build-dependencies")]
-    build_dependencies: HashMap<String, CargoDependencyEntry>,
+    build_dependencies: Option<HashMap<String, CargoDependencyEntry>>,
     dependencies: HashMap<String, CargoDependencyEntry>,
 }
 
@@ -241,20 +241,23 @@ fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
 
     let cargo_file = toml::from_str::<CargoFile>(&toml_string)?;
 
-    let crates = [cargo_file.build_dependencies, cargo_file.dependencies]
-        .into_iter()
-        .flatten()
-        .filter_map(|(key, value)| match value {
-            CargoDependencyEntry::String(data) => Some((key, data)),
-            CargoDependencyEntry::Table(CargoDependencyTableEntry {
-                version: Some(data),
-            }) => Some((key, data)),
-            _ => {
-                debug!(%key, ?value, "unexpected version structure");
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let crates = [
+        cargo_file.build_dependencies.unwrap_or_default(),
+        cargo_file.dependencies,
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|(key, value)| match value {
+        CargoDependencyEntry::String(data) => Some((key, data)),
+        CargoDependencyEntry::Table(CargoDependencyTableEntry {
+            version: Some(data),
+        }) => Some((key, data)),
+        _ => {
+            debug!(%key, ?value, "unexpected version structure");
+            None
+        }
+    })
+    .collect::<Vec<_>>();
 
     Ok(crates)
 }
