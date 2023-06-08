@@ -151,6 +151,8 @@ struct CargoFile {
     #[serde(rename = "build-dependencies")]
     build_dependencies: Option<HashMap<String, CargoDependencyEntry>>,
     dependencies: HashMap<String, CargoDependencyEntry>,
+    #[serde(rename = "dev-dependencies")]
+    dev_dependencies: Option<HashMap<String, CargoDependencyEntry>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,6 +246,7 @@ fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
     let crates = [
         cargo_file.build_dependencies.unwrap_or_default(),
         cargo_file.dependencies,
+        cargo_file.dev_dependencies.unwrap_or_default(),
     ]
     .into_iter()
     .flatten()
