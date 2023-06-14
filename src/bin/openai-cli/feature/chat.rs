@@ -382,9 +382,19 @@ struct ChatCompletionRequest<'a> {
 enum ChatCompletionModel {
     #[serde(rename = "gpt-3.5-turbo")]
     GPT35Turbo,
+
+    #[serde(rename = "gpt-3.5-turbo-16k")]
+    #[allow(dead_code)]
+    GPT35Turbo16k,
+
     #[serde(rename = "gpt-3.5-turbo-0301")]
     #[allow(dead_code)]
+    #[deprecated = "discontinuation date: 2023-09-13 https://platform.openai.com/docs/deprecations/"]
     GPT35Turbo0301,
+
+    #[serde(rename = "gpt-3.5-turbo-0613")]
+    #[allow(dead_code)]
+    GPT35Turbo0613,
 }
 
 impl FromStr for ChatCompletionModel {
@@ -393,7 +403,10 @@ impl FromStr for ChatCompletionModel {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "gpt-3.5-turbo" => Ok(Self::GPT35Turbo),
+            "gpt-3.5-turbo-16k" => Ok(Self::GPT35Turbo16k),
+            #[allow(deprecated)]
             "gpt-3.5-turbo-0301" => Ok(Self::GPT35Turbo0301),
+            "gpt-3.5-turbo-0613" => Ok(Self::GPT35Turbo0613),
             _ => bail!("unexpected str: {}", s),
         }
     }
@@ -464,10 +477,14 @@ mod tests {
 
         let _ = match GPT35Turbo {
             GPT35Turbo => (),
+            #[allow(deprecated)]
             GPT35Turbo0301 => (),
+            GPT35Turbo16k => {}
+            GPT35Turbo0613 => {}
         };
 
-        for entry in [GPT35Turbo, GPT35Turbo0301] {
+        #[allow(deprecated)]
+        for entry in [GPT35Turbo, GPT35Turbo0301, GPT35Turbo16k, GPT35Turbo0613] {
             let serialized = get_serialized_string(&entry).unwrap();
             assert_eq!(entry, serialized.parse::<ChatCompletionModel>().unwrap());
         }

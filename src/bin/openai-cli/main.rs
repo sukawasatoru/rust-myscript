@@ -211,3 +211,21 @@ fn main() -> Fallible<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_cli() {
+        Opt::command().debug_assert();
+    }
+
+    #[ignore]
+    #[test]
+    fn opt_help() {
+        Opt::command().print_help().unwrap();
+        // Opt::command().get_matches_from(["foo", "chat", "--help"]);
+    }
+}
