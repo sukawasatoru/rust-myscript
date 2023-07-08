@@ -47,7 +47,7 @@ struct Opt {
     list: bool,
 
     /// Compression method (0..=5).
-    #[arg(value_name = "n", short, value_parser = clap::value_parser!(u8).range(0..=5))]
+    #[arg(short, value_parser = clap::value_parser!(u8).range(0..=5))]
     m: Option<u8>,
 
     /// Add data recovery record.
@@ -88,18 +88,18 @@ fn main() -> Fallible<()> {
         }
     }
 
-    let m = opt.m.map(|data| data.to_string());
-    if let Some(ref n) = m {
-        args.extend_from_slice(&["m", n]);
+    let m = opt.m.map(|data| format!("-m{}", data));
+    if let Some(ref data) = m {
+        args.extend_from_slice(&[data]);
     }
 
     let rr = opt.rr.map(|data| data.to_string());
     if let Some(ref n) = rr {
-        args.extend_from_slice(&["rr", n]);
+        args.extend_from_slice(&["-rr", n]);
     }
 
     if opt.hp {
-        args.push("hp");
+        args.push("-hp");
     }
 
     args.push(&opt.f);
