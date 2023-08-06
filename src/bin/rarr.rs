@@ -77,7 +77,7 @@ fn main() -> Fallible<()> {
     if opt.create {
         args.push("a");
     } else if opt.x {
-        args.push("e");
+        args.push("x");
     }
 
     if opt.list {
