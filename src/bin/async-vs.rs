@@ -66,7 +66,7 @@ async fn thread_pool_like(jobs: usize, mut works: Vec<impl Fn() -> usize + Send 
     let futs = futures::stream::FuturesUnordered::new();
     for index in 0..jobs {
         let entries = if index == jobs - 1 {
-            works.drain(..).collect::<Vec<_>>()
+            std::mem::take(&mut works)
         } else {
             works.drain(0..window).collect::<Vec<_>>()
         };

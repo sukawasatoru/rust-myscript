@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
     let mut futs = futures::stream::FuturesUnordered::new();
     for index in 0..job_num {
         let entries = if index == job_num - 1 {
-            files.drain(..).collect::<Vec<_>>()
+            std::mem::take(&mut files)
         } else {
             files.drain(0..window).collect::<Vec<_>>()
         };
@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
 
                     loop {
                         let n = match reader.read(&mut buf).await {
-                            Ok(n) if n == 0 => break,
+                            Ok(0) => break,
                             Ok(n) => n,
                             Err(e) => {
                                 eprintln!("{e:?}");
