@@ -13,8 +13,8 @@ jobs:
         # https://github.com/actions/virtual-environments#available-environments
         os:
           - macos-latest
-          - ubuntu-20.04
-          - windows-2019
+          - ubuntu-latest
+          - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
