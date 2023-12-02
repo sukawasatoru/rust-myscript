@@ -366,9 +366,18 @@ fn main() {
         OsInfo(
             &["t", "13", "tiramisu", "tira", "api33", "33"],
             r#"Android 13
-  Initial release: N/A
+  Initial release: 2022
   VERSION_CODES: T
   API Level: 33
+"#,
+        ),
+        OsInfo(
+            &["u", "14", "upside", "down", "cake", "api34", "34"],
+            r#"Android 14
+  Initial release: 2023
+  Code name: Upside Down Cake
+  VERSION_CODES: U
+  API Level: 34
 "#,
         ),
     ];
