@@ -14,28 +14,32 @@
  * limitations under the License.
  */
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
+use reqwest::StatusCode;
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
-use std::fs::{create_dir_all, File};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::Semaphore;
+use url::Url;
 
 /// Check new crate from specified Cargo.toml.
 #[derive(Parser)]
 #[clap(name = "crate-checker", group = clap::ArgGroup::new("fetch").multiple(false))]
 struct Opt {
-    /// Doesn't update 'crates.io-index.git' repository before check crate versions.
+    /// Ignored for compatibility with older implementations.
     #[arg(long, group = "fetch")]
+    #[deprecated = "ignored for compatibility with older implementations"]
     no_fetch: bool,
 
-    /// Update 'crates.io-index.git' always.
+    /// Request 'index.creates.io' always.
     #[arg(long, group = "fetch")]
     force_fetch: bool,
 
@@ -71,19 +75,13 @@ async fn main() -> Fallible<()> {
         return Ok(());
     }
 
-    check_git()?;
-
     let cargo_file = opt.cargo_file.expect("required_unless_present");
     if !cargo_file.exists() {
         bail!("{} is not exists", cargo_file.display())
     }
 
-    let current_time = Utc::now();
     let project_dirs = directories::ProjectDirs::from("com", "sukawasatoru", "Crate Updater")
         .expect("no valid home directory");
-    let prefs_path = project_dirs.config_dir().join("preferences.toml");
-
-    let mut prefs = load_prefs(&prefs_path)?;
 
     let crates = read_crates(&cargo_file)?;
 
@@ -95,29 +93,28 @@ async fn main() -> Fallible<()> {
         create_dir_all(cache_dir)?;
     }
 
-    let repo_path = cache_dir.join("crates.io-index");
-    if repo_path.exists() {
-        if opt.no_fetch {
-            debug!("skip fetch");
-        } else if opt.force_fetch || Duration::minutes(5) < current_time - prefs.last_fetch {
-            debug!("fetch");
-            git_fetch(&repo_path)?;
-            git_checkout(&repo_path)?;
-            prefs.last_fetch = current_time;
-            store_prefs(&prefs_path, &prefs)?;
-        }
-    } else {
-        git_clone(cache_dir)?;
-        prefs.last_fetch = current_time;
-        store_prefs(&prefs_path, &prefs)?;
+    let cache_dir_sparse = Arc::new(cache_dir.join("sparse"));
+    if !cache_dir_sparse.exists() {
+        create_dir_all(&*cache_dir_sparse)?;
     }
 
+    let client = reqwest::Client::builder()
+        .user_agent("crate-checker")
+        .build()?;
+
+    // TODO: delete repo.
+    let repo_path = cache_dir.join("crates.io-index");
+
     let mut futs = futures::stream::FuturesOrdered::new();
-    let repo_path = Arc::new(repo_path);
+    let semaphore = Arc::new(Semaphore::new(8));
     for (crate_name, current_version) in crates {
-        let repo_path = repo_path.clone();
+        let client = client.clone();
+        let semaphore = semaphore.clone();
+        let cache_dir_sparse = cache_dir_sparse.clone();
         futs.push_back(tokio::spawn(async move {
-            let ret = read_latest_version(&repo_path, &crate_name, opt.pre_release);
+            let _permit = semaphore.acquire().await.unwrap();
+            let ret =
+                fetch_latest_version(client, &cache_dir_sparse, &crate_name, opt.pre_release).await;
             (crate_name, current_version, ret)
         }));
     }
@@ -169,74 +166,10 @@ struct CargoDependencyTableEntry {
     version: Option<semver::Version>,
 }
 
-fn check_git() -> Fallible<()> {
-    let ret = std::process::Command::new("git")
-        .arg("--help")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?
-        .wait()?;
-    if ret.code().context("terminated")? != 0 {
-        bail!("git not found");
-    }
-
-    Ok(())
-}
-
-fn git_fetch(repo_path: &Path) -> Fallible<()> {
-    let status_code = std::process::Command::new("git")
-        .args(["fetch", "origin", "master"])
-        .current_dir(repo_path)
-        .spawn()?
-        .wait()?;
-
-    match status_code.code() {
-        Some(0) => Ok(()),
-        Some(_) => {
-            bail!("failed to fetch repository: {}", status_code)
-        }
-        None => bail!("killed git process"),
-    }
-}
-
-fn git_checkout(repo_path: &Path) -> Fallible<()> {
-    let status_code = std::process::Command::new("git")
-        .args(["checkout", "origin/master"])
-        .current_dir(repo_path)
-        .spawn()?
-        .wait()?;
-
-    match status_code.code() {
-        Some(0) => Ok(()),
-        Some(_) => {
-            bail!("failed to checkout repository: {}", status_code)
-        }
-        None => bail!("killed git process"),
-    }
-}
-
-fn git_clone(cache_dir: &Path) -> Fallible<()> {
-    let status_code = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--filter=blob:none",
-            "https://github.com/rust-lang/crates.io-index.git",
-        ])
-        .current_dir(cache_dir)
-        .spawn()?
-        .wait()?;
-
-    match status_code.code() {
-        Some(0) => Ok(()),
-        Some(_) => {
-            bail!("failed to clone repository: {}", status_code)
-        }
-        None => bail!("killed git process"),
-    }
-}
-
 fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+
     let mut toml_string = String::new();
     let mut buf = BufReader::new(File::open(file_path)?);
     buf.read_to_string(&mut toml_string)?;
@@ -265,50 +198,157 @@ fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
     Ok(crates)
 }
 
-fn read_latest_version(
-    repo_path: &Path,
+#[tracing::instrument(skip(client, cache_dir, pre_release))]
+async fn fetch_latest_version(
+    client: reqwest::Client,
+    cache_dir: &Path,
     crate_name: &str,
     pre_release: bool,
 ) -> Fallible<semver::Version> {
-    let git_result = std::process::Command::new("git")
-        .args(["ls-files", "-z", &format!("*/{crate_name}")])
-        .stdout(std::process::Stdio::piped())
-        .current_dir(repo_path)
-        .spawn()?
-        .wait_with_output()?;
-    let stdout = String::from_utf8(git_result.stdout).context("failed to convert stdout")?;
-    debug!(%crate_name, %stdout);
+    let target = Url::parse("https://index.crates.io")?.join(&create_crate_path(crate_name))?;
 
-    match git_result.status.code() {
-        Some(0) => {}
-        Some(_) => bail!("failed to find version file: {}", git_result.status),
-        None => bail!("killed git process"),
+    let builder = client.get(target);
+
+    async fn request_get(builder: reqwest::RequestBuilder) -> Fallible<reqwest::Response> {
+        let res = builder.send().await?;
+        res.error_for_status_ref()
+            .context("server returned an error")?;
+        Ok(res)
     }
 
-    let file_path = repo_path.join(stdout.trim_end_matches('\0'));
-    let mut file_string = String::new();
-    let mut buf = BufReader::new(File::open(file_path)?);
+    let retrieve_and_store_text = |res: reqwest::Response| async move {
+        let etag = res
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|data| match data.to_str() {
+                Ok(etag) => Some(etag.to_string()),
+                Err(e) => {
+                    warn!("failed to convert etag to text: {crate_name}, {:?}", e);
+                    None
+                }
+            });
 
-    let mut latest = semver::Version::new(0, 0, 0);
-    loop {
-        file_string.clear();
-        let ret = buf.read_line(&mut file_string);
-        match ret {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(e) => return Err(e).context("failed to read version file"),
+        debug!("retrieve body");
+        let text = res.text().await?;
+
+        if let Some(etag) = etag {
+            if let Err(e) = store_cache(cache_dir, crate_name, &etag, &text).await {
+                warn!("failed to store cache: {crate_name}, {:?}", e);
+            }
         }
 
-        let line_version = serde_json::from_str::<CratesIOVersion>(&file_string)?;
+        Result::<String, anyhow::Error>::Ok(text)
+    };
+
+    let text = match load_cached_text(cache_dir, crate_name).await {
+        Ok(None) => {
+            debug!("request");
+            let res = request_get(builder).await?;
+            retrieve_and_store_text(res).await?
+        }
+        Ok(Some((etag, text))) => {
+            debug!(%etag, "request w/ etag");
+            let res = request_get(builder.header(reqwest::header::IF_NONE_MATCH, etag)).await?;
+
+            if res.status() == StatusCode::NOT_MODIFIED {
+                debug!("use cache");
+                text
+            } else {
+                retrieve_and_store_text(res).await?
+            }
+        }
+        Err(e) => {
+            warn!("request (failed to retrieve cache): {:?}", e);
+            let res = request_get(builder).await?;
+            retrieve_and_store_text(res).await?
+        }
+    };
+
+    trace!(%crate_name, %text);
+
+    let mut found = false;
+    let mut latest = semver::Version::new(0, 0, 0);
+    for line in text.lines() {
+        if line.is_empty() {
+            debug!("continue");
+            continue;
+        }
+
+        let line_version = serde_json::from_str::<CratesIOVersion>(line)?;
         if line_version.yanked || (!line_version.vers.pre.is_empty() && !pre_release) {
             continue;
         }
         if latest < line_version.vers {
+            found = true;
             latest = line_version.vers;
         }
     }
 
+    if !found {
+        bail!("version not found: {crate_name}");
+    }
+
     Ok(latest)
+}
+
+#[tracing::instrument(skip(cache_dir))]
+async fn load_cached_text(
+    cache_dir: &Path,
+    crate_name: &str,
+) -> Fallible<Option<(String, String)>> {
+    let cache_path = cache_dir.join(crate_name);
+    let cached_string = match tokio::fs::try_exists(&cache_path).await? {
+        true => {
+            let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&cache_path).await?);
+            let mut buf = String::new();
+            reader.read_to_string(&mut buf).await?;
+            buf
+        }
+        false => return Ok(None),
+    };
+
+    let etag_path = cache_dir.join(format!("{crate_name}.etag"));
+    let etag = match tokio::fs::try_exists(&etag_path).await? {
+        true => {
+            let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&etag_path).await?);
+            let mut buf = String::new();
+            reader.read_to_string(&mut buf).await?;
+            buf
+        }
+        false => {
+            warn!("cache exist but etag not found");
+            return Ok(None);
+        }
+    };
+
+    Ok(Some((etag, cached_string)))
+}
+
+async fn store_cache(cache_dir: &Path, crate_name: &str, etag: &str, text: &str) -> Fallible<()> {
+    async fn write_to_file(p: &Path, data: &str) -> Fallible<()> {
+        let mut writer = tokio::io::BufWriter::new(tokio::fs::File::create(p).await?);
+        writer.write_all(data.as_bytes()).await?;
+        writer.flush().await?;
+        Ok(())
+    }
+
+    let etag_path = cache_dir.join(format!("{crate_name}.etag"));
+    write_to_file(&etag_path, etag).await?;
+
+    let cache_path = cache_dir.join(crate_name);
+    write_to_file(&cache_path, text).await?;
+
+    Ok(())
+}
+
+/// https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
+fn create_crate_path(name: &str) -> String {
+    match name.len() {
+        1 => format!("/1/{name}"),
+        2 => format!("/2/{name}"),
+        3 => format!("/3/{}/{name}", &name[0..1]),
+        _ => format!("/{}/{}/{name}", &name[0..=1], &name[2..=3]),
+    }
 }
 
 fn deserialize_semver_option<'de, D>(de: D) -> Result<Option<semver::Version>, D::Error>
@@ -375,7 +415,11 @@ struct Prefs {
     last_fetch: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 fn load_prefs(prefs_path: &Path) -> Fallible<Prefs> {
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+
     let config_path = prefs_path.parent().context("config directory")?;
 
     if !config_path.exists() {
@@ -395,7 +439,11 @@ fn load_prefs(prefs_path: &Path) -> Fallible<Prefs> {
     Ok(toml::from_str(&prefs_string)?)
 }
 
+#[allow(dead_code)]
 fn store_prefs(prefs_path: &Path, prefs: &Prefs) -> Fallible<()> {
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+
     let config_path = prefs_path.parent().context("config directory")?;
 
     if !config_path.exists() {
@@ -407,4 +455,34 @@ fn store_prefs(prefs_path: &Path, prefs: &Prefs) -> Fallible<()> {
     buf.flush()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_crate_path_1() {
+        assert_eq!("/1/a", create_crate_path("a"));
+    }
+
+    #[test]
+    fn create_crate_path_2() {
+        assert_eq!("/2/aa", create_crate_path("aa"));
+    }
+
+    #[test]
+    fn create_crate_path_3() {
+        assert_eq!("/3/a/abc", create_crate_path("abc"));
+    }
+
+    #[test]
+    fn create_crate_path_4() {
+        assert_eq!("/ab/cd/abcd", create_crate_path("abcd"));
+    }
+
+    #[test]
+    fn create_crate_path_5() {
+        assert_eq!("/ab/cd/abcde", create_crate_path("abcde"));
+    }
 }
