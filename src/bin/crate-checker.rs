@@ -98,12 +98,15 @@ async fn main() -> Fallible<()> {
         create_dir_all(&*cache_dir_sparse)?;
     }
 
+    let repo_path = cache_dir.join("crates.io-index");
+    if repo_path.exists() {
+        info!("remove caches for git protocol");
+        std::fs::remove_dir_all(repo_path)?;
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("crate-checker")
         .build()?;
-
-    // TODO: delete repo.
-    let repo_path = cache_dir.join("crates.io-index");
 
     let mut futs = futures::stream::FuturesOrdered::new();
     let semaphore = Arc::new(Semaphore::new(8));
