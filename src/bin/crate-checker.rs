@@ -116,8 +116,14 @@ async fn main() -> Fallible<()> {
         let cache_dir_sparse = cache_dir_sparse.clone();
         futs.push_back(tokio::spawn(async move {
             let _permit = semaphore.acquire().await.unwrap();
-            let ret =
-                fetch_latest_version(client, &cache_dir_sparse, &crate_name, opt.pre_release).await;
+            let ret = fetch_latest_version(
+                client,
+                &cache_dir_sparse,
+                &crate_name,
+                opt.pre_release,
+                opt.force_fetch,
+            )
+            .await;
             (crate_name, current_version, ret)
         }));
     }
@@ -207,6 +213,7 @@ async fn fetch_latest_version(
     cache_dir: &Path,
     crate_name: &str,
     pre_release: bool,
+    force: bool,
 ) -> Fallible<semver::Version> {
     let target = Url::parse("https://index.crates.io")?.join(&create_crate_path(crate_name))?;
 
@@ -244,12 +251,7 @@ async fn fetch_latest_version(
     };
 
     let text = match load_cached_text(cache_dir, crate_name).await {
-        Ok(None) => {
-            debug!("request");
-            let res = request_get(builder).await?;
-            retrieve_and_store_text(res).await?
-        }
-        Ok(Some((etag, text))) => {
+        Ok(Some((etag, text))) if !force => {
             debug!(%etag, "request w/ etag");
             let res = request_get(builder.header(reqwest::header::IF_NONE_MATCH, etag)).await?;
 
@@ -259,6 +261,11 @@ async fn fetch_latest_version(
             } else {
                 retrieve_and_store_text(res).await?
             }
+        }
+        Ok(_) => {
+            debug!("request");
+            let res = request_get(builder).await?;
+            retrieve_and_store_text(res).await?
         }
         Err(e) => {
             warn!("request (failed to retrieve cache): {:?}", e);
