@@ -1,7 +1,6 @@
 [package]
 name = "rust-myscript"
 description = "Super good command-line tools for myself"
-version = "0.1.0"
 authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 homepage = "https://github.com/sukawasatoru/rust-myscript"
 repository = "https://github.com/sukawasatoru/rust-myscript.git"

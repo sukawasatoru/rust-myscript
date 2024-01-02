@@ -22,7 +22,7 @@ fn main() -> Fallible<()> {
         let mut conn = Connection::open(database_path)?;
         retrieve_user_version(&mut conn)?
     } else if let Some(version_string) = opt.version_string {
-        SQLiteUserVersion::try_from(version_string.parse::<u32>()?)?
+        SQLiteUserVersion::from(version_string.parse::<u32>()?)
     } else {
         unreachable!()
     };
