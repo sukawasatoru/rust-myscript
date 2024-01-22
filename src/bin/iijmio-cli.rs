@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023 sukawasatoru
+ * Copyright 2022, 2023, 2024 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use axum::extract::Query;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
-use axum::{Router, Server};
+use axum::Router;
 use chrono::{DateTime, Duration, Utc};
 use rand::distributions::{Alphanumeric, DistString};
 use rand::thread_rng;
@@ -29,7 +29,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::fs::{create_dir_all, File};
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
+use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use url::Url;
@@ -130,8 +131,8 @@ async fn launch_callback_server(
             }),
         );
 
-    Server::bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, server_port)))
-        .serve(app.into_make_service())
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, server_port)).await?;
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(tx.subscribe()))
         .await
         .context("server error")?;
