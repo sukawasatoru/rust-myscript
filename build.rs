@@ -96,7 +96,7 @@ fn checksqlite() -> anyhow::Result<()> {
 
     pkg_config::Config::new()
         // for upsert.
-        .atleast_version("3.24.0")
+        .atleast_version("3.22.0")
         .probe("sqlite3")?;
     Ok(())
 }
