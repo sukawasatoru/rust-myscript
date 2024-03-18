@@ -7,7 +7,7 @@ struct Context {
     terminal_notifier_name: String,
     slack_user_name: String,
     slack_notify_url: String,
-    reqwest_client: reqwest::Client,
+    reqwest_client: reqwest::blocking::Client,
     battery_level_regex: Regex,
     battery_remaining_regex: Regex,
     charging_regex: Regex,
@@ -34,8 +34,7 @@ struct Opt {
     slack_notify_url: String,
 }
 
-#[tokio::main]
-async fn main() -> Fallible<()> {
+fn main() -> Fallible<()> {
     if cfg!(not(target_os = "macos")) {
         bail!("expect macOS");
     }
@@ -54,7 +53,7 @@ async fn main() -> Fallible<()> {
             None => get_hostname()?,
         },
         slack_notify_url: opt.slack_notify_url,
-        reqwest_client: reqwest::Client::new(),
+        reqwest_client: reqwest::blocking::Client::new(),
         battery_level_regex: Regex::new("	([0-9]*)%;")?,
         battery_remaining_regex: Regex::new("; ([0-9:]*) remaining present: true")?,
         charging_regex: Regex::new("; charging;")?,
@@ -96,7 +95,7 @@ async fn main() -> Fallible<()> {
                 notify_terminal(&context, &ps_info).ok();
             }
 
-            match notify_slack(&context, &ps_info).await {
+            match notify_slack(&context, &ps_info) {
                 Ok(data) => info!(%data, "notify success"),
                 Err(e) => info!(%e, "notify fail"),
             };
@@ -181,7 +180,7 @@ fn notify_terminal(context: &Context, ps_info: &PSInfo) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<String> {
+fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<String> {
     debug!(payload = %generate_slack_payload(context, ps_info));
     let ret = context
         .reqwest_client
@@ -191,10 +190,8 @@ async fn notify_slack(context: &Context, ps_info: &PSInfo) -> anyhow::Result<Str
             reqwest::header::CONTENT_TYPE,
             reqwest::header::HeaderValue::from_str("application/x-www-form-urlencoded")?,
         )
-        .send()
-        .await?
-        .text()
-        .await?;
+        .send()?
+        .text()?;
 
     Ok(ret)
 }
