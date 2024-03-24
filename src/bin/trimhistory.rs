@@ -1,10 +1,19 @@
+use chrono::Utc;
 use clap::{Parser, Subcommand};
+use rusqlite::{named_params, CachedStatement, Connection, Rows, Transaction};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
+use std::marker::PhantomPinned;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::ptr::NonNull;
+use std::sync::Arc;
+use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
+use tinytable_rs::Type::{INTEGER, TEXT};
+use tinytable_rs::{column, Column, Table};
 
 #[derive(Debug, Parser)]
 struct Opt {
@@ -32,37 +41,15 @@ enum Command {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 struct Entry {
     command: String,
     count: i32,
 }
 
-impl Entry {
-    fn new(command: &str) -> Entry {
-        Entry {
-            command: command.to_owned(),
-            count: 1,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 struct Statistics {
     entries: Vec<Entry>,
-}
-
-impl Statistics {
-    fn increment_command_count(&mut self, command: &str) {
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|entry| entry.command == command);
-        match entry {
-            Some(entry) => entry.count += 1,
-            None => self.entries.push(Entry::new(command)),
-        }
-    }
 }
 
 fn main() -> Fallible<()> {
@@ -76,23 +63,18 @@ fn main() -> Fallible<()> {
         Command::Trim {
             backup_path,
             history_path,
-        } => trim_from_path(history_path, backup_path, None),
+        } => trim_from_path(history_path, backup_path),
         Command::Show { num } => show(num),
     }
 }
 
 #[tracing::instrument]
-fn trim_from_path(
-    history_path: PathBuf,
-    backup_path: Option<PathBuf>,
-    statistics_path: Option<PathBuf>,
-) -> Fallible<()> {
+fn trim_from_path(history_path: PathBuf, backup_path: Option<PathBuf>) -> Fallible<()> {
     let project_dirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
-    let statistics_path =
-        statistics_path.unwrap_or_else(|| project_dirs.data_dir().join("statistics.toml"));
+    let statistics_toml_path = project_dirs.data_dir().join("statistics.toml");
 
-    statistics_path
+    statistics_toml_path
         .parent()
         .context("statistics parent")
         .and_then(|parent| {
@@ -102,6 +84,23 @@ fn trim_from_path(
                 Ok(())
             }
         })?;
+
+    let statistics_db_path = project_dirs.data_dir().join("statistics.db");
+
+    if statistics_toml_path.exists() {
+        if !statistics_db_path.exists() {
+            let reader = BufReader::new(File::open(&statistics_toml_path)?);
+            let mut db = Db::create_with_path(&statistics_db_path)?;
+            if let Err(e) = import_from_toml(reader, &mut db) {
+                drop(db);
+                std::fs::remove_file(&statistics_db_path)?;
+                return Err(e);
+            }
+        }
+        std::fs::remove_file(&statistics_toml_path)?;
+    }
+
+    let mut db = Db::create_with_path(&statistics_db_path)?;
 
     let backup_dest = match backup_path {
         Some(dest) => Some(BufWriter::new(File::create(dest)?)),
@@ -113,42 +112,37 @@ fn trim_from_path(
             Ok(BufWriter::new(File::create(&history_path)?))
         }),
         backup_dest,
-        (BufReader::new(File::open(&statistics_path)?), || {
-            Ok(BufWriter::new(File::create(&statistics_path)?))
-        }),
+        &mut db,
     )
 }
 
-fn trim<
-    HistorySrc,
-    HistoryDest,
-    HistoryDestProvider,
-    BackupDest,
-    StatisticsSrc,
-    StatisticsDest,
-    StatisticsDestProvider,
->(
+fn import_from_toml<TomlSrc: Read>(toml_src: TomlSrc, db: &mut Db) -> Fallible<()> {
+    let statistics = load_statistics(toml_src)?;
+
+    let mut tx = db.tx()?;
+    tx.insert_entries(&statistics.entries)?;
+    tx.commit()?;
+
+    Ok(())
+}
+
+fn trim<HistorySrc, HistoryDest, HistoryDestProvider, BackupDest>(
     history: (HistorySrc, HistoryDestProvider),
     mut backup_dest: Option<BackupDest>,
-    statistics: (StatisticsSrc, StatisticsDestProvider),
+    db: &mut Db,
 ) -> Fallible<()>
 where
     HistorySrc: BufRead,
     HistoryDest: Write,
     HistoryDestProvider: FnOnce() -> Fallible<HistoryDest>,
     BackupDest: Write,
-    StatisticsSrc: Read,
-    StatisticsDest: Write,
-    StatisticsDestProvider: FnOnce() -> Fallible<StatisticsDest>,
 {
     let (mut history_src, history_dest_provider) = history;
-    let (statistics_src, statistics_dest_provider) = statistics;
-
-    let mut statistics = load_statistics(statistics_src)?;
 
     let mut line = String::new();
     let mut trimmed = Vec::new();
     let mut trim_count = 0;
+    let mut tx = db.tx()?;
     loop {
         match history_src.read_line(&mut line) {
             Ok(0) => break,
@@ -169,7 +163,7 @@ where
                     debug!(index, "contains");
                     trimmed.remove(index);
                     trim_count += 1;
-                    statistics.increment_command_count(trimmed_line);
+                    tx.add_or_increment(trimmed_line)?;
                 }
                 trimmed.push(trimmed_line.to_owned());
                 line.clear();
@@ -177,6 +171,7 @@ where
             Err(e) => return Err(e.into()),
         }
     }
+    tx.commit()?;
 
     if let Some(ref mut backup_dest) = backup_dest {
         backup_dest.flush()?;
@@ -190,30 +185,41 @@ where
     }
     history_dest.flush()?;
 
-    store_statistics(statistics_dest_provider()?, &statistics)?;
-
     Ok(())
 }
 
 fn show(num: Option<i32>) -> Fallible<()> {
     let project_dirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
-    let statistics_path = project_dirs.data_dir().join("statistics.toml");
+    let statistics_toml_path = project_dirs.data_dir().join("statistics.toml");
 
-    let mut statistics: Statistics = load_statistics(BufReader::new(File::open(statistics_path)?))?;
+    let statistics_db_path = project_dirs.data_dir().join("statistics.db");
 
-    statistics.entries.sort_by(|lh, rh| rh.count.cmp(&lh.count));
-    let len = if let Some(num) = num {
-        if statistics.entries.len() < num as usize {
-            statistics.entries.len()
-        } else {
-            num as usize
+    if statistics_toml_path.exists() {
+        if !statistics_db_path.exists() {
+            let reader = BufReader::new(File::open(&statistics_toml_path)?);
+            let mut db = Db::create_with_path(&statistics_db_path)?;
+            if let Err(e) = import_from_toml(reader, &mut db) {
+                drop(db);
+                std::fs::remove_file(&statistics_db_path)?;
+                return Err(e);
+            }
         }
-    } else {
-        statistics.entries.len()
-    };
-    for entry in &statistics.entries[..len] {
+        std::fs::remove_file(&statistics_toml_path)?;
+    }
+
+    let mut db = Db::create_with_path(&statistics_db_path)?;
+    let tx = db.tx()?;
+
+    let num = num.map(usize::try_from).unwrap_or(Ok(usize::MAX))?;
+    let rows = tx.find_all()?.enumerate();
+    for (i, entry) in rows {
+        let entry = entry?;
         println!("{:4}: {}", entry.count, entry.command);
+
+        if num <= i + 1 {
+            break;
+        }
     }
 
     Ok(())
@@ -225,10 +231,260 @@ fn load_statistics<R: Read>(mut src: R) -> Fallible<Statistics> {
     toml::from_str(&buf).context("failed to parse statistics")
 }
 
-fn store_statistics<Dest: Write>(mut dest: Dest, statistics: &Statistics) -> Fallible<()> {
-    let statistics_data = toml::to_string(statistics)?;
-    dest.write_all(statistics_data.as_bytes())?;
-    dest.flush().context("failed to flush statistics")
+struct StatisticsTable {
+    command: Arc<Column>,
+    count: Arc<Column>,
+    created_at: Arc<Column>,
+    columns: Vec<Arc<Column>>,
+    indexes: Vec<(String, Vec<Arc<Column>>)>,
+}
+
+impl Default for StatisticsTable {
+    fn default() -> Self {
+        let command = column("command", TEXT, [PRIMARY_KEY, NOT_NULL]);
+        let count = column("count", INTEGER, [NOT_NULL]);
+        let created_at = column("created_at", INTEGER, [NOT_NULL]);
+        Self {
+            command: command.clone(),
+            count: count.clone(),
+            created_at: created_at.clone(),
+            columns: vec![command, count.clone(), created_at.clone()],
+            indexes: vec![(
+                "index_count_created_at".to_owned(),
+                vec![
+                    // TODO: asc/desc.
+                    column(format!("{} desc", count.name()), INTEGER, []),
+                    column(format!("{} desc", created_at.name()), INTEGER, []),
+                ],
+            )],
+        }
+    }
+}
+
+impl Table for StatisticsTable {
+    fn name(&self) -> &str {
+        "statistics"
+    }
+
+    fn columns(&self) -> &[Arc<Column>] {
+        &self.columns
+    }
+
+    fn indexes(&self) -> &[(String, Vec<Arc<Column>>)] {
+        &self.indexes
+    }
+}
+
+struct Db {
+    conn: Connection,
+    table: StatisticsTable,
+}
+
+impl Db {
+    fn create_with_path(db_path: &Path) -> Fallible<Self> {
+        Self::create_with_conn(Connection::open(db_path)?)
+    }
+
+    fn create_with_conn(conn: Connection) -> Fallible<Self> {
+        let table = StatisticsTable::default();
+
+        let db_version = conn.query_row("pragma user_version", [], |row| row.get::<_, i32>(0))?;
+        match db_version {
+            0 => {
+                let mut sqls = vec![table.create_sql()];
+                sqls.extend(table.create_index());
+                conn.execute_batch(&sqls.join(";"))?;
+
+                conn.execute("pragma user_version = 1", ())?;
+            }
+            1 => (),
+            _ => bail!("unsupported db version: {db_version}"),
+        }
+
+        Ok(Self { conn, table })
+    }
+
+    fn tx(&mut self) -> Fallible<DbTx> {
+        Ok(DbTx {
+            tx: self.conn.transaction().context("conn.tx")?,
+            table: &self.table,
+        })
+    }
+}
+
+struct DbTx<'a> {
+    tx: Transaction<'a>,
+    table: &'a StatisticsTable,
+}
+
+impl DbTx<'_> {
+    fn commit(self) -> Fallible<()> {
+        self.tx.commit().context("tx.commit")
+    }
+
+    fn insert_entries(&mut self, entries: &[Entry]) -> Fallible<()> {
+        let current_time = Utc::now();
+
+        let sql = format!(
+            "insert into {table} ({command}, {count}, {created_at}) values (:command, :count, :created_at)",
+            table = self.table.name(),
+            command = self.table.command.name(),
+            count = self.table.count.name(),
+            created_at = self.table.created_at.name(),
+        );
+        let mut stmt = self.tx.prepare_cached(&sql).context("tx.prepare")?;
+        for entry in entries {
+            stmt.insert(named_params! {
+                ":command": entry.command,
+                ":count": entry.count,
+                ":created_at": current_time.timestamp(),
+            })
+            .with_context(|| format!("stmt.execute: {}", entry.command))?;
+        }
+
+        Ok(())
+    }
+
+    fn add_or_increment(&mut self, command_name: &str) -> Fallible<()> {
+        let current_time = Utc::now();
+
+        let sql = format!(
+            "insert or replace into {table} ({command}, {count}, {created_at}) select {command}, {count} + 1 as {count}, {created_at} from {table} where {command} = :command union select :command as {command}, 1 as {count}, :created_at as {created_at} where not exists(select 1 from {table} where {command} = :command)",
+            table = self.table.name(),
+            command = self.table.command.name(),
+            count = self.table.count.name(),
+            created_at = self.table.created_at.name(),
+        );
+
+        let mut stmt = self.tx.prepare_cached(&sql).context("tx.prepare")?;
+        stmt.insert(named_params! {
+            ":command": command_name,
+            ":created_at": current_time.timestamp(),
+        })
+        .context("stmt.insert")?;
+
+        Ok(())
+    }
+
+    fn find_all(&self) -> Fallible<EntryRows<'_>> {
+        let sql = format!(
+            "select {command}, {count} from {table} order by {count} desc, {created_at} desc",
+            command = self.table.command.name(),
+            count = self.table.count.name(),
+            created_at = self.table.created_at.name(),
+            table = self.table.name(),
+        );
+
+        let stmt = self.tx.prepare_cached(&sql).context("tx.prepare")?;
+        let index_command = stmt
+            .column_index(self.table.command.name())
+            .context("stmt.index(command)")?;
+        let index_count = stmt
+            .column_index(self.table.count.name())
+            .context("stmt.index(count)")?;
+
+        EntryRows::create(stmt, index_command, index_count)
+    }
+}
+
+struct EntryRows<'conn> {
+    inner: Pin<Box<EntryRowsInner<'conn>>>,
+}
+
+impl<'conn> EntryRows<'conn> {
+    fn create(
+        stmt: CachedStatement<'conn>,
+        index_command: usize,
+        index_count: usize,
+    ) -> Fallible<Self> {
+        Ok(Self {
+            inner: EntryRowsInner::create(stmt, index_command, index_count)?,
+        })
+    }
+}
+
+impl Iterator for EntryRows<'_> {
+    type Item = Fallible<Entry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let inner = unsafe { self.inner.as_mut().get_unchecked_mut() };
+        inner.next()
+    }
+}
+
+struct EntryRowsInner<'conn> {
+    stmt: NonNull<CachedStatement<'conn>>,
+    rows: NonNull<Rows<'conn>>,
+    index_command: usize,
+    index_count: usize,
+    _pin: PhantomPinned,
+}
+
+impl<'conn> EntryRowsInner<'conn> {
+    fn create(
+        stmt: CachedStatement<'conn>,
+        index_command: usize,
+        index_count: usize,
+    ) -> Fallible<Pin<Box<Self>>> {
+        let stmt = Box::leak(Box::new(stmt));
+        let (stmt, rows) = unsafe {
+            let mut stmt = NonNull::new_unchecked(stmt as *mut CachedStatement);
+
+            let rows = match stmt.as_mut().query([]) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    let _ = Box::from_raw(stmt.as_ptr());
+                    return Err(e).context("stmt.query");
+                }
+            };
+            let rows = Box::leak(Box::new(rows));
+            let rows = NonNull::new_unchecked(rows as *mut Rows);
+            (stmt, rows)
+        };
+        let data = Box::pin(Self {
+            stmt,
+            rows,
+            index_command,
+            index_count,
+            _pin: PhantomPinned,
+        });
+
+        Ok(data)
+    }
+}
+
+impl Drop for EntryRowsInner<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Box::from_raw(self.rows.as_ptr());
+            let _ = Box::from_raw(self.stmt.as_ptr());
+        }
+    }
+}
+
+impl Iterator for EntryRowsInner<'_> {
+    type Item = Fallible<Entry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let rows = unsafe { self.rows.as_mut() };
+        let row = match rows.next() {
+            Ok(Some(row)) => row,
+            Ok(None) => return None,
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        let command = match row.get(self.index_command) {
+            Ok(data) => data,
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        let count = match row.get(self.index_count) {
+            Ok(data) => data,
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        Some(Ok(Entry { command, count }))
+    }
 }
 
 #[cfg(test)]
@@ -253,33 +509,36 @@ pwd
 cd ~/
 "#;
 
-        let statistics_src = r#"
-[[entries]]
-command = "pwd"
-count = 4113
-
-[[entries]]
-command = "ls -l"
-count = 416
-
-[[entries]]
-command = "ls -la"
-count = 317
-"#;
-
         let mut actual_history = Vec::new();
         let history_writer = BufWriter::new(&mut actual_history);
 
         let mut actual_backup = Vec::new();
         let backup_writer = BufWriter::new(&mut actual_backup);
 
-        let mut actual_statistics = Vec::new();
-        let statistics_writer = BufWriter::new(&mut actual_statistics);
+        let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
+
+        let mut tx = db.tx().unwrap();
+        tx.insert_entries(&[
+            Entry {
+                command: "pwd".to_string(),
+                count: 4113,
+            },
+            Entry {
+                command: "ls -l".to_string(),
+                count: 416,
+            },
+            Entry {
+                command: "ls -la".to_string(),
+                count: 317,
+            },
+        ])
+        .unwrap();
+        tx.commit().unwrap();
 
         trim(
             (history_src.as_bytes(), || Ok(history_writer)),
             Some(backup_writer),
-            (statistics_src.as_bytes(), || Ok(statistics_writer)),
+            &mut db,
         )
         .unwrap();
 
@@ -295,24 +554,143 @@ cd ~/
 
         assert_eq!(String::from_utf8(actual_backup).unwrap(), history_src);
 
+        let mut tx = db.tx().unwrap();
+        let mut rows = tx.find_all().unwrap();
         assert_eq!(
-            String::from_utf8(actual_statistics).unwrap(),
-            r#"[[entries]]
-command = "pwd"
-count = 4115
-
-[[entries]]
-command = "ls -l"
-count = 416
-
-[[entries]]
-command = "ls -la"
-count = 317
-
-[[entries]]
-command = "cd ~/"
-count = 1
-"#
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "pwd".to_string(),
+                count: 4115,
+            }
         );
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "ls -l".to_string(),
+                count: 416,
+            }
+        );
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "ls -la".to_string(),
+                count: 317,
+            }
+        );
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "cd ~/".to_string(),
+                count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_db() {
+        let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
+        let mut tx = db.tx().unwrap();
+        tx.add_or_increment("aa").unwrap();
+        let count = tx
+            .tx
+            .query_row(
+                "select count from statistics where command = 'aa'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        tx.add_or_increment("aa").unwrap();
+        let count = tx
+            .tx
+            .query_row(
+                "select count from statistics where command = 'aa'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+        tx.commit().unwrap();
+        let count = db
+            .conn
+            .query_row(
+                "select count from statistics where command = 'aa'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "create table foo(name text primary key not null, count integer not null)",
+            [],
+        )
+        .unwrap();
+        let mut tx = conn.transaction().unwrap();
+        tx.execute(
+            "insert into foo (name, count) values ('aa', 1), ('bb', 1)",
+            [],
+        )
+        .unwrap();
+        tx.execute(
+            "update foo set count = (select count + 1 as count from foo where name = 'aa') where name = 'aa'",
+            [],
+        )
+        .unwrap();
+        let actual = tx
+            .query_row("select count from foo where name = 'aa'", [], |row| {
+                row.get::<_, i32>(0)
+            })
+            .unwrap();
+        assert_eq!(actual, 2);
+    }
+
+    #[test]
+    fn db_insert_query() {
+        let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
+        let mut tx = db.tx().unwrap();
+
+        tx.add_or_increment("command 3").unwrap();
+        tx.add_or_increment("command 3").unwrap();
+        tx.add_or_increment("command 1").unwrap();
+        tx.add_or_increment("command 1").unwrap();
+        tx.add_or_increment("command 1").unwrap();
+        tx.add_or_increment("command 1").unwrap();
+        tx.add_or_increment("command 1").unwrap();
+        tx.add_or_increment("command 2").unwrap();
+
+        tx.commit().unwrap();
+
+        let tx = db.tx().unwrap();
+        let mut rows = tx.find_all().unwrap();
+
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "command 1".to_string(),
+                count: 5,
+            }
+        );
+
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "command 3".to_string(),
+                count: 2,
+            }
+        );
+
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "command 2".to_string(),
+                count: 1,
+            }
+        );
+
+        assert!(rows.next().is_none());
+
+        drop(rows);
     }
 }
