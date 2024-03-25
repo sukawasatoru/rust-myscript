@@ -37,7 +37,7 @@ enum Command {
     Show {
         /// prints the first NUM lines
         #[arg(name = "NUM", short, long = "lines")]
-        num: Option<i32>,
+        num: Option<u32>,
     },
 }
 
@@ -188,7 +188,7 @@ where
     Ok(())
 }
 
-fn show(num: Option<i32>) -> Fallible<()> {
+fn show(num: Option<u32>) -> Fallible<()> {
     let project_dirs =
         directories::ProjectDirs::from("jp", "tinyport", "trimhistory").context("ProjectDirs")?;
     let statistics_toml_path = project_dirs.data_dir().join("statistics.toml");
@@ -211,15 +211,9 @@ fn show(num: Option<i32>) -> Fallible<()> {
     let mut db = Db::create_with_path(&statistics_db_path)?;
     let tx = db.tx()?;
 
-    let num = num.map(usize::try_from).unwrap_or(Ok(usize::MAX))?;
-    let rows = tx.find_all()?.enumerate();
-    for (i, entry) in rows {
+    for entry in tx.find_all(num)? {
         let entry = entry?;
         println!("{:4}: {}", entry.count, entry.command);
-
-        if num <= i + 1 {
-            break;
-        }
     }
 
     Ok(())
@@ -366,14 +360,18 @@ impl DbTx<'_> {
         Ok(())
     }
 
-    fn find_all(&self) -> Fallible<EntryRows<'_>> {
-        let sql = format!(
+    fn find_all(&self, limit: Option<u32>) -> Fallible<EntryRows<'_>> {
+        let mut sql = format!(
             "select {command}, {count} from {table} order by {count} desc, {created_at} desc",
             command = self.table.command.name(),
             count = self.table.count.name(),
             created_at = self.table.created_at.name(),
             table = self.table.name(),
         );
+
+        if let Some(limit) = limit {
+            sql.push_str(&format!(" limit {limit}"));
+        }
 
         let stmt = self.tx.prepare_cached(&sql).context("tx.prepare")?;
         let index_command = stmt
@@ -545,7 +543,7 @@ cd ~/
         assert_eq!(String::from_utf8(actual_backup).unwrap(), history_src);
 
         let tx = db.tx().unwrap();
-        let mut rows = tx.find_all().unwrap();
+        let mut rows = tx.find_all(None).unwrap();
         assert_eq!(
             rows.next().unwrap().unwrap(),
             Entry {
@@ -577,66 +575,6 @@ cd ~/
     }
 
     #[test]
-    fn test_db() {
-        let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
-        let mut tx = db.tx().unwrap();
-        tx.add_or_increment("aa").unwrap();
-        let count = tx
-            .tx
-            .query_row(
-                "select count from statistics where command = 'aa'",
-                [],
-                |row| row.get::<_, i32>(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1);
-        tx.add_or_increment("aa").unwrap();
-        let count = tx
-            .tx
-            .query_row(
-                "select count from statistics where command = 'aa'",
-                [],
-                |row| row.get::<_, i32>(0),
-            )
-            .unwrap();
-        assert_eq!(count, 2);
-        tx.commit().unwrap();
-        let count = db
-            .conn
-            .query_row(
-                "select count from statistics where command = 'aa'",
-                [],
-                |row| row.get::<_, i32>(0),
-            )
-            .unwrap();
-        assert_eq!(count, 2);
-
-        let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "create table foo(name text primary key not null, count integer not null)",
-            [],
-        )
-        .unwrap();
-        let tx = conn.transaction().unwrap();
-        tx.execute(
-            "insert into foo (name, count) values ('aa', 1), ('bb', 1)",
-            [],
-        )
-        .unwrap();
-        tx.execute(
-            "update foo set count = (select count + 1 as count from foo where name = 'aa') where name = 'aa'",
-            [],
-        )
-        .unwrap();
-        let actual = tx
-            .query_row("select count from foo where name = 'aa'", [], |row| {
-                row.get::<_, i32>(0)
-            })
-            .unwrap();
-        assert_eq!(actual, 2);
-    }
-
-    #[test]
     fn db_insert_query() {
         let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
         let mut tx = db.tx().unwrap();
@@ -653,7 +591,7 @@ cd ~/
         tx.commit().unwrap();
 
         let tx = db.tx().unwrap();
-        let mut rows = tx.find_all().unwrap();
+        let mut rows = tx.find_all(None).unwrap();
 
         assert_eq!(
             rows.next().unwrap().unwrap(),
@@ -680,8 +618,17 @@ cd ~/
         );
 
         assert!(rows.next().is_none());
-
         drop(rows);
+
+        let mut rows = tx.find_all(Some(1)).unwrap();
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: "command 1".to_string(),
+                count: 5,
+            }
+        );
+        assert!(rows.next().is_none());
     }
 
     #[test]
@@ -712,7 +659,7 @@ cd ~/
         tx.commit().unwrap();
 
         let tx = db.tx().unwrap();
-        let mut rows = tx.find_all().unwrap();
+        let mut rows = tx.find_all(None).unwrap();
         assert_eq!(rows.next().unwrap().unwrap(), entry1);
         assert_eq!(rows.next().unwrap().unwrap(), entry2);
         assert!(rows.next().is_none());
@@ -721,7 +668,7 @@ cd ~/
 
         let mut tx = db.tx().unwrap();
         tx.add_or_increment(&entry1.command).unwrap();
-        let mut rows = tx.find_all().unwrap();
+        let mut rows = tx.find_all(None).unwrap();
         assert_eq!(
             rows.next().unwrap().unwrap(),
             Entry {
@@ -735,7 +682,7 @@ cd ~/
         drop(tx);
 
         let tx = db.tx().unwrap();
-        let mut rows = tx.find_all().unwrap();
+        let mut rows = tx.find_all(None).unwrap();
         assert_eq!(rows.next().unwrap().unwrap(), entry1);
         assert_eq!(rows.next().unwrap().unwrap(), entry2);
         assert!(rows.next().is_none());
