@@ -383,7 +383,23 @@ impl DbTx<'_> {
             .column_index(self.table.count.name())
             .context("stmt.index(count)")?;
 
-        EntryRows::create(stmt, index_command, index_count)
+        let stmt = Box::leak(Box::new(stmt));
+        let (stmt, rows) = unsafe {
+            let mut stmt = NonNull::new_unchecked(stmt as *mut CachedStatement);
+
+            let rows = match stmt.as_mut().query([]) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    let _ = Box::from_raw(stmt.as_ptr());
+                    return Err(e).context("stmt.query");
+                }
+            };
+            let rows = Box::leak(Box::new(rows));
+            let rows = NonNull::new_unchecked(rows as *mut Rows);
+            (stmt, rows)
+        };
+
+        Ok(EntryRows::create(stmt, rows, index_command, index_count))
     }
 }
 
@@ -393,13 +409,20 @@ struct EntryRows<'conn> {
 
 impl<'conn> EntryRows<'conn> {
     fn create(
-        stmt: CachedStatement<'conn>,
+        stmt: NonNull<CachedStatement<'conn>>,
+        rows: NonNull<Rows<'conn>>,
         index_command: usize,
         index_count: usize,
-    ) -> Fallible<Self> {
-        Ok(Self {
-            inner: EntryRowsInner::create(stmt, index_command, index_count)?,
-        })
+    ) -> Self {
+        Self {
+            inner: Box::pin(EntryRowsInner {
+                stmt,
+                rows,
+                index_command,
+                index_count,
+                _pin: PhantomPinned,
+            }),
+        }
     }
 }
 
@@ -418,39 +441,6 @@ struct EntryRowsInner<'conn> {
     index_command: usize,
     index_count: usize,
     _pin: PhantomPinned,
-}
-
-impl<'conn> EntryRowsInner<'conn> {
-    fn create(
-        stmt: CachedStatement<'conn>,
-        index_command: usize,
-        index_count: usize,
-    ) -> Fallible<Pin<Box<Self>>> {
-        let stmt = Box::leak(Box::new(stmt));
-        let (stmt, rows) = unsafe {
-            let mut stmt = NonNull::new_unchecked(stmt as *mut CachedStatement);
-
-            let rows = match stmt.as_mut().query([]) {
-                Ok(rows) => rows,
-                Err(e) => {
-                    let _ = Box::from_raw(stmt.as_ptr());
-                    return Err(e).context("stmt.query");
-                }
-            };
-            let rows = Box::leak(Box::new(rows));
-            let rows = NonNull::new_unchecked(rows as *mut Rows);
-            (stmt, rows)
-        };
-        let data = Box::pin(Self {
-            stmt,
-            rows,
-            index_command,
-            index_count,
-            _pin: PhantomPinned,
-        });
-
-        Ok(data)
-    }
 }
 
 impl Drop for EntryRowsInner<'_> {
