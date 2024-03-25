@@ -554,7 +554,7 @@ cd ~/
 
         assert_eq!(String::from_utf8(actual_backup).unwrap(), history_src);
 
-        let mut tx = db.tx().unwrap();
+        let tx = db.tx().unwrap();
         let mut rows = tx.find_all().unwrap();
         assert_eq!(
             rows.next().unwrap().unwrap(),
@@ -627,7 +627,7 @@ cd ~/
             [],
         )
         .unwrap();
-        let mut tx = conn.transaction().unwrap();
+        let tx = conn.transaction().unwrap();
         tx.execute(
             "insert into foo (name, count) values ('aa', 1), ('bb', 1)",
             [],
@@ -692,5 +692,62 @@ cd ~/
         assert!(rows.next().is_none());
 
         drop(rows);
+    }
+
+    #[test]
+    fn db_insert_rollback() {
+        let mut db = Db::create_with_conn(Connection::open_in_memory().unwrap()).unwrap();
+
+        let entry1 = Entry {
+            command: "command 1".to_owned(),
+            count: 10,
+        };
+        let entry2 = Entry {
+            command: "command 2".to_owned(),
+            count: 5,
+        };
+
+        let mut tx = db.tx().unwrap();
+        tx.insert_entries(&[
+            Entry {
+                command: entry1.command.clone(),
+                count: entry1.count,
+            },
+            Entry {
+                command: entry2.command.clone(),
+                count: entry2.count,
+            },
+        ])
+        .unwrap();
+        tx.commit().unwrap();
+
+        let tx = db.tx().unwrap();
+        let mut rows = tx.find_all().unwrap();
+        assert_eq!(rows.next().unwrap().unwrap(), entry1);
+        assert_eq!(rows.next().unwrap().unwrap(), entry2);
+        assert!(rows.next().is_none());
+        drop(rows);
+        drop(tx);
+
+        let mut tx = db.tx().unwrap();
+        tx.add_or_increment(&entry1.command).unwrap();
+        let mut rows = tx.find_all().unwrap();
+        assert_eq!(
+            rows.next().unwrap().unwrap(),
+            Entry {
+                command: entry1.command.clone(),
+                count: entry1.count + 1
+            }
+        );
+        assert_eq!(rows.next().unwrap().unwrap(), entry2);
+        assert!(rows.next().is_none());
+        drop(rows);
+        drop(tx);
+
+        let tx = db.tx().unwrap();
+        let mut rows = tx.find_all().unwrap();
+        assert_eq!(rows.next().unwrap().unwrap(), entry1);
+        assert_eq!(rows.next().unwrap().unwrap(), entry2);
+        assert!(rows.next().is_none());
     }
 }
