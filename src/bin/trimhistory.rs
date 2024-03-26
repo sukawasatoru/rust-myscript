@@ -7,6 +7,7 @@ use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
 use std::marker::PhantomPinned;
+use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::ptr::NonNull;
@@ -381,20 +382,15 @@ impl DbTx<'_> {
             .column_index(self.table.count.name())
             .context("stmt.index(count)")?;
 
-        let stmt = Box::leak(Box::new(stmt));
-        let (stmt, rows) = unsafe {
-            let mut stmt = NonNull::new_unchecked(stmt as *mut CachedStatement);
-
-            let rows = match stmt.as_mut().query([]) {
+        let stmt = Box::into_raw(Box::new(stmt));
+        let rows = unsafe {
+            match NonNull::new_unchecked(stmt).as_mut().query([]) {
                 Ok(rows) => rows,
                 Err(e) => {
-                    let _ = Box::from_raw(stmt.as_ptr());
+                    drop(Box::from_raw(stmt));
                     return Err(e).context("stmt.query");
                 }
-            };
-            let rows = Box::leak(Box::new(rows));
-            let rows = NonNull::new_unchecked(rows as *mut Rows);
-            (stmt, rows)
+            }
         };
 
         Ok(EntryRows::create(stmt, rows, index_command, index_count))
@@ -407,15 +403,15 @@ struct EntryRows<'conn> {
 
 impl<'conn> EntryRows<'conn> {
     fn create(
-        stmt: NonNull<CachedStatement<'conn>>,
-        rows: NonNull<Rows<'conn>>,
+        stmt: *mut CachedStatement<'conn>,
+        rows: Rows<'conn>,
         index_command: usize,
         index_count: usize,
     ) -> Self {
         Self {
             inner: Box::pin(EntryRowsInner {
                 stmt,
-                rows,
+                rows: ManuallyDrop::new(rows),
                 index_command,
                 index_count,
                 _pin: PhantomPinned,
@@ -434,8 +430,8 @@ impl Iterator for EntryRows<'_> {
 }
 
 struct EntryRowsInner<'conn> {
-    stmt: NonNull<CachedStatement<'conn>>,
-    rows: NonNull<Rows<'conn>>,
+    stmt: *mut CachedStatement<'conn>,
+    rows: ManuallyDrop<Rows<'conn>>,
     index_command: usize,
     index_count: usize,
     _pin: PhantomPinned,
@@ -444,8 +440,8 @@ struct EntryRowsInner<'conn> {
 impl Drop for EntryRowsInner<'_> {
     fn drop(&mut self) {
         unsafe {
-            let _ = Box::from_raw(self.rows.as_ptr());
-            let _ = Box::from_raw(self.stmt.as_ptr());
+            ManuallyDrop::drop(&mut self.rows);
+            drop(Box::from_raw(self.stmt));
         }
     }
 }
@@ -454,8 +450,7 @@ impl Iterator for EntryRowsInner<'_> {
     type Item = Fallible<Entry>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let rows = unsafe { self.rows.as_mut() };
-        let row = match rows.next() {
+        let row = match self.rows.next() {
             Ok(Some(row)) => row,
             Ok(None) => return None,
             Err(e) => return Some(Err(e.into())),
