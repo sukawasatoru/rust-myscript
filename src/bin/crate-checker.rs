@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023 sukawasatoru
+ * Copyright 2022, 2023, 2024 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -166,6 +166,7 @@ struct CargoFile {
 enum CargoDependencyEntry {
     String(#[serde(deserialize_with = "deserialize_semver")] semver::Version),
     Table(CargoDependencyTableEntry),
+    #[allow(dead_code)]
     Unsupported(toml::Value),
 }
 
