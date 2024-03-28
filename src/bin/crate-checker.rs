@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use reqwest::StatusCode;
@@ -23,7 +23,8 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all, File};
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -61,8 +62,6 @@ async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    info!("Hello");
-
     let opt = Opt::parse();
 
     if let Some(data) = opt.completion {
@@ -83,7 +82,7 @@ async fn main() -> Fallible<()> {
     let project_dirs = directories::ProjectDirs::from("com", "sukawasatoru", "Crate Updater")
         .expect("no valid home directory");
 
-    let crates = read_crates(&cargo_file)?;
+    let crates = read_crates_from_path(&cargo_file)?;
 
     let cache_dir = project_dirs.cache_dir();
 
@@ -147,18 +146,18 @@ async fn main() -> Fallible<()> {
     for (crate_name, (current_version, latest_version)) in updated_map {
         println!("name: {crate_name}, current: {current_version}, latest: {latest_version}");
     }
-    info!("Bye");
 
     Ok(())
 }
 
 #[derive(Deserialize)]
 struct CargoFile {
-    #[serde(rename = "build-dependencies")]
-    build_dependencies: Option<HashMap<String, CargoDependencyEntry>>,
+    #[serde(rename = "build-dependencies", default)]
+    build_dependencies: HashMap<String, CargoDependencyEntry>,
+    #[serde(default)]
     dependencies: HashMap<String, CargoDependencyEntry>,
-    #[serde(rename = "dev-dependencies")]
-    dev_dependencies: Option<HashMap<String, CargoDependencyEntry>>,
+    #[serde(rename = "dev-dependencies", default)]
+    dev_dependencies: HashMap<String, CargoDependencyEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,8 +165,7 @@ struct CargoFile {
 enum CargoDependencyEntry {
     String(#[serde(deserialize_with = "deserialize_semver")] semver::Version),
     Table(CargoDependencyTableEntry),
-    #[allow(dead_code)]
-    Unsupported(toml::Value),
+    Unsupported(#[allow(dead_code)] toml::Value),
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,20 +174,20 @@ struct CargoDependencyTableEntry {
     version: Option<semver::Version>,
 }
 
-fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
-    use std::fs::File;
-    use std::io::{BufReader, Read};
+fn read_crates_from_path(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
+    read_crates(std::io::BufReader::new(File::open(file_path)?))
+}
 
+fn read_crates<R: BufRead>(mut reader: R) -> Fallible<Vec<(String, semver::Version)>> {
     let mut toml_string = String::new();
-    let mut buf = BufReader::new(File::open(file_path)?);
-    buf.read_to_string(&mut toml_string)?;
+    reader.read_to_string(&mut toml_string)?;
 
     let cargo_file = toml::from_str::<CargoFile>(&toml_string)?;
 
     let crates = [
-        cargo_file.build_dependencies.unwrap_or_default(),
+        cargo_file.build_dependencies,
         cargo_file.dependencies,
-        cargo_file.dev_dependencies.unwrap_or_default(),
+        cargo_file.dev_dependencies,
     ]
     .into_iter()
     .flatten()
@@ -198,7 +196,8 @@ fn read_crates(file_path: &Path) -> Fallible<Vec<(String, semver::Version)>> {
         CargoDependencyEntry::Table(CargoDependencyTableEntry {
             version: Some(data),
         }) => Some((key, data)),
-        _ => {
+        CargoDependencyEntry::Table(CargoDependencyTableEntry { version: None })
+        | CargoDependencyEntry::Unsupported(_) => {
             debug!(%key, ?value, "unexpected version structure");
             None
         }
@@ -269,7 +268,7 @@ async fn fetch_latest_version(
             retrieve_and_store_text(res).await?
         }
         Err(e) => {
-            warn!("request (failed to retrieve cache): {:?}", e);
+            warn!(?e, "request (failed to retrieve cache)");
             let res = request_get(builder).await?;
             retrieve_and_store_text(res).await?
         }
@@ -426,48 +425,6 @@ struct Prefs {
     last_fetch: DateTime<Utc>,
 }
 
-#[allow(dead_code)]
-fn load_prefs(prefs_path: &Path) -> Fallible<Prefs> {
-    use std::fs::File;
-    use std::io::{BufReader, Read};
-
-    let config_path = prefs_path.parent().context("config directory")?;
-
-    if !config_path.exists() {
-        create_dir_all(config_path)?;
-    }
-
-    if !prefs_path.exists() {
-        return Ok(Prefs {
-            last_fetch: Utc.timestamp_opt(0, 0).unwrap(),
-        });
-    }
-
-    let mut prefs_string = String::new();
-    let mut buf = BufReader::new(File::open(prefs_path)?);
-
-    buf.read_to_string(&mut prefs_string)?;
-    Ok(toml::from_str(&prefs_string)?)
-}
-
-#[allow(dead_code)]
-fn store_prefs(prefs_path: &Path, prefs: &Prefs) -> Fallible<()> {
-    use std::fs::File;
-    use std::io::{BufWriter, Write};
-
-    let config_path = prefs_path.parent().context("config directory")?;
-
-    if !config_path.exists() {
-        create_dir_all(config_path)?;
-    }
-
-    let mut buf = BufWriter::new(File::create(prefs_path)?);
-    buf.write_all(toml::to_string(prefs)?.as_bytes())?;
-    buf.flush()?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +452,145 @@ mod tests {
     #[test]
     fn create_crate_path_5() {
         assert_eq!("/ab/cd/abcde", create_crate_path("abcde"));
+    }
+
+    #[test]
+    fn read_crates_ok() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[dependencies]
+anyhow = "=1.0.80"
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "anyhow".to_string(),
+                semver::Version::parse("1.0.80").unwrap()
+            )]
+        );
+    }
+
+    #[test]
+    fn read_crates_build_dependencies() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[build-dependencies]
+anyhow = "=1.0.80"
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "anyhow".to_string(),
+                semver::Version::parse("1.0.80").unwrap()
+            )]
+        );
+    }
+
+    #[test]
+    fn read_crates_with_build_dependencies() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[build-dependencies]
+anyhow = "*"
+
+[dependencies]
+anyhow = "=1.0.80"
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "anyhow".to_string(),
+                semver::Version::parse("1.0.80").unwrap()
+            )]
+        );
+    }
+
+    #[test]
+    fn read_crates_dev_dependencies() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[dev-dependencies]
+anyhow = "=1.0.80"
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "anyhow".to_string(),
+                semver::Version::parse("1.0.80").unwrap()
+            )]
+        );
+    }
+
+    #[test]
+    fn read_crates_with_dev_dependencies() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[dependencies]
+anyhow = "=1.0.80"
+
+[dev-dependencies]
+anyhow = "*"
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "anyhow".to_string(),
+                semver::Version::parse("1.0.80").unwrap()
+            )]
+        );
+    }
+
+    #[test]
+    fn read_crates_git() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[dependencies]
+tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag = "v0.3.2" }
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(actual, vec![]);
+    }
+
+    #[test]
+    fn read_crates_table() {
+        let source = r#"
+[package]
+name = "foo"
+edition = 2021
+
+[dependencies]
+reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzip", "deflate"] }
+"#;
+        let actual = read_crates(source.as_bytes()).unwrap();
+        assert_eq!(
+            actual,
+            vec![(
+                "reqwest".to_string(),
+                semver::Version::parse("0.11.24").unwrap()
+            )]
+        );
     }
 }
