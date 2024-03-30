@@ -11,14 +11,14 @@ anyhow = "*"
 pkg-config = "=0.3.30"
 
 [dependencies]
-anyhow = "=1.0.80"
+anyhow = "=1.0.81"
 async-stream = "=0.3.5"
-axum = { version = "=0.7.4", features = ["macros"] }
+axum = { version = "=0.7.5", features = ["macros"] }
 base64 = "=0.22.0"
 blake2 = "=0.10.6"
-bytes = "=1.5.0"
-chrono = { version = "=0.4.34", features = ["serde"] }
-clap = { version = "=4.5.1", features = ["derive", "env"] }
+bytes = "=1.6.0"
+chrono = { version = "=0.4.37", features = ["serde"] }
+clap = { version = "=4.5.4", features = ["derive", "env"] }
 clap_complete = "=4.5.1"
 crossterm = "=0.27.0"
 digest = "=0.10.7"
@@ -31,30 +31,30 @@ libc = "=0.2.153"
 md-5 = "=0.10.6"
 mime = "=0.3.17"
 num_cpus = "=1.16.0"
-opener = "=0.6.1"
+opener = "=0.7.0"
 rand = "=0.8.5"
-regex = "=1.10.3"
-reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzip", "deflate"] }
+regex = "=1.10.4"
+reqwest = { version = "=0.12.2", features = ["blocking", "json", "brotli", "gzip", "deflate"] }
 rusqlite = { version = "=0.31.0", features = ["bundled-windows"] }
 semver = { version = "=1.0.22", features = ["serde"] }
 serde = { version = "=1.0.197", features = ["derive", "rc"] }
-serde_json = "=1.0.114"
+serde_json = "=1.0.115"
 sha-1 = "=0.10.1"
 sha2 = "=0.10.8"
 sha3 = "=0.10.8"
 serde_urlencoded = "=0.7.1"
-strum = { version = "=0.26.1", features = ["derive"] }
+strum = { version = "=0.26.2", features = ["derive"] }
 tui = { version = "=0.19.0", features = ["crossterm"] }
 tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag = "v0.3.2" }
-tokio = { version = "=1.36.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
-toml = "=0.8.10"
+tokio = { version = "=1.37.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
+toml = "=0.8.12"
 tracing = "=0.1.40"
 tracing-appender = "=0.2.3"
 tracing-subscriber = { version = "=0.3.18", features = ["env-filter"] }
-tree_magic_mini = { version = "=3.0.3", optional = true }
+tree_magic_mini = { version = "=3.1.4", optional = true }
 trust-dns-resolver = "=0.23.2"
 url = { version = "2.5.0", features = ["serde"] }
-uuid = { version = "=1.7.0", features = ["v4"] }
+uuid = { version = "=1.8.0", features = ["v4"] }
 warp = { version = "=0.3.6", features = ["tls"] }
 
 [dev-dependencies]
