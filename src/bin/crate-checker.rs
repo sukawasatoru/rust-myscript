@@ -24,6 +24,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
 use std::fs::{create_dir_all, File};
+use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -92,7 +93,7 @@ async fn main() -> Fallible<()> {
         create_dir_all(cache_dir)?;
     }
 
-    let cache_dir_sparse = Arc::new(cache_dir.join("sparse"));
+    let cache_dir_sparse = cache_dir.join("sparse");
     if !cache_dir_sparse.exists() {
         create_dir_all(&*cache_dir_sparse)?;
     }
@@ -103,26 +104,25 @@ async fn main() -> Fallible<()> {
         std::fs::remove_dir_all(repo_path)?;
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("crate-checker")
-        .build()?;
+    let client = Arc::new(CratesIOClient::create(
+        reqwest::Client::builder()
+            .user_agent("crate-checker")
+            .build()?,
+        CratesCacheFile {
+            dir: cache_dir_sparse,
+        },
+    ));
 
     let mut futs = futures::stream::FuturesOrdered::new();
     let semaphore = Arc::new(Semaphore::new(8));
     for (crate_name, current_version) in crates {
         let client = client.clone();
         let semaphore = semaphore.clone();
-        let cache_dir_sparse = cache_dir_sparse.clone();
         futs.push_back(tokio::spawn(async move {
             let _permit = semaphore.acquire().await.unwrap();
-            let ret = fetch_latest_version(
-                client,
-                &cache_dir_sparse,
-                &crate_name,
-                opt.pre_release,
-                opt.force_fetch,
-            )
-            .await;
+            let ret = client
+                .fetch_latest_version(&crate_name, opt.pre_release, opt.force_fetch)
+                .await;
             (crate_name, current_version, ret)
         }));
     }
@@ -207,148 +207,215 @@ fn read_crates<R: BufRead>(mut reader: R) -> Fallible<Vec<(String, semver::Versi
     Ok(crates)
 }
 
-#[tracing::instrument(skip(client, cache_dir, pre_release))]
-async fn fetch_latest_version(
-    client: reqwest::Client,
-    cache_dir: &Path,
-    crate_name: &str,
-    pre_release: bool,
-    force: bool,
-) -> Fallible<semver::Version> {
-    let target = Url::parse("https://index.crates.io")?.join(&create_crate_path(crate_name))?;
+#[derive(Eq, PartialEq, Debug)]
+struct ETag(String);
 
-    let builder = client.get(target);
+trait CratesCache: Send {
+    fn load(&self, name: &str) -> impl Future<Output = Option<(ETag, String)>> + Send;
 
-    async fn request_get(builder: reqwest::RequestBuilder) -> Fallible<reqwest::Response> {
-        let res = builder.send().await?;
-        res.error_for_status_ref()
-            .context("server returned an error")?;
-        Ok(res)
-    }
+    fn save(
+        &self,
+        name: &str,
+        etag: &ETag,
+        value: &str,
+    ) -> impl Future<Output = Fallible<()>> + Send;
+}
 
-    let retrieve_and_store_text = |res: reqwest::Response| async move {
-        let etag = res
-            .headers()
-            .get(reqwest::header::ETAG)
-            .and_then(|data| match data.to_str() {
-                Ok(etag) => Some(etag.to_string()),
-                Err(e) => {
-                    warn!("failed to convert etag to text: {crate_name}, {:?}", e);
-                    None
-                }
+struct CratesCacheFile {
+    dir: PathBuf,
+}
+
+impl CratesCache for CratesCacheFile {
+    #[tracing::instrument(skip(self))]
+    async fn load(&self, name: &str) -> Option<(ETag, String)> {
+        let cache_path = self.dir.join(name);
+
+        let exists = tokio::fs::try_exists(&cache_path)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(?e, cache_path = %cache_path.display(), "failed to perform metadata call");
+                false
             });
 
-        debug!("retrieve body");
-        let text = res.text().await?;
+        let cached_string = if exists {
+            let mut reader = match tokio::fs::File::open(&cache_path).await {
+                Ok(data) => tokio::io::BufReader::new(data),
+                Err(e) => {
+                    warn!(?e, "failed to open file");
+                    return None;
+                }
+            };
 
-        if let Some(etag) = etag {
-            if let Err(e) = store_cache(cache_dir, crate_name, &etag, &text).await {
-                warn!("failed to store cache: {crate_name}, {:?}", e);
+            let mut buf = String::new();
+            match reader.read_to_string(&mut buf).await {
+                Ok(_) => buf,
+                Err(e) => {
+                    warn!(?e, cache_path = %cache_path.display(), "read_to_string");
+                    return None;
+                }
             }
-        }
+        } else {
+            debug!(cache_path = %cache_path.display(), "not found");
+            return None;
+        };
 
-        Result::<String, anyhow::Error>::Ok(text)
-    };
+        let etag_path = self.dir.join(format!("{name}.etag"));
+        let exists = tokio::fs::try_exists(&etag_path).await.unwrap_or_else(|e| {
+            warn!(?e, etag_path = %etag_path.display(), "failed to perform metadata call");
+            false
+        });
 
-    let text = match load_cached_text(cache_dir, crate_name).await {
-        Ok(Some((etag, text))) if !force => {
-            debug!(%etag, "request w/ etag");
-            let res = request_get(builder.header(reqwest::header::IF_NONE_MATCH, etag)).await?;
+        let etag = if exists {
+            let mut reader = match tokio::fs::File::open(&etag_path).await {
+                Ok(data) => tokio::io::BufReader::new(data),
+                Err(e) => {
+                    warn!(?e, etag_path = %etag_path.display(), "failed to open file");
+                    return None;
+                }
+            };
 
-            if res.status() == StatusCode::NOT_MODIFIED {
-                debug!("use cache");
-                text
-            } else {
-                retrieve_and_store_text(res).await?
+            let mut buf = String::new();
+            match reader.read_to_string(&mut buf).await {
+                Ok(_) => ETag(buf),
+                Err(e) => {
+                    warn!(?e, etag_path = %etag_path.display(), "read_to_string");
+                    return None;
+                }
             }
-        }
-        Ok(_) => {
-            debug!("request");
-            let res = request_get(builder).await?;
-            retrieve_and_store_text(res).await?
-        }
-        Err(e) => {
-            warn!(?e, "request (failed to retrieve cache)");
-            let res = request_get(builder).await?;
-            retrieve_and_store_text(res).await?
-        }
-    };
+        } else {
+            debug!(etag_path = %etag_path.display(), "not found");
+            return None;
+        };
 
-    trace!(%crate_name, %text);
-
-    let mut found = false;
-    let mut latest = semver::Version::new(0, 0, 0);
-    for line in text.lines() {
-        if line.is_empty() {
-            debug!("continue");
-            continue;
-        }
-
-        let line_version = serde_json::from_str::<CratesIOVersion>(line)?;
-        if line_version.yanked || (!line_version.vers.pre.is_empty() && !pre_release) {
-            continue;
-        }
-        if latest < line_version.vers {
-            found = true;
-            latest = line_version.vers;
-        }
+        Some((etag, cached_string))
     }
 
-    if !found {
-        bail!("version not found: {crate_name}");
-    }
-
-    Ok(latest)
-}
-
-#[tracing::instrument(skip(cache_dir))]
-async fn load_cached_text(
-    cache_dir: &Path,
-    crate_name: &str,
-) -> Fallible<Option<(String, String)>> {
-    let cache_path = cache_dir.join(crate_name);
-    let cached_string = match tokio::fs::try_exists(&cache_path).await? {
-        true => {
-            let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&cache_path).await?);
-            let mut buf = String::new();
-            reader.read_to_string(&mut buf).await?;
-            buf
+    async fn save(&self, name: &str, etag: &ETag, value: &str) -> Fallible<()> {
+        async fn write_to_file(p: &Path, data: &str) -> Fallible<()> {
+            let mut writer = tokio::io::BufWriter::new(tokio::fs::File::create(p).await?);
+            writer.write_all(data.as_bytes()).await?;
+            writer.flush().await?;
+            Ok(())
         }
-        false => return Ok(None),
-    };
 
-    let etag_path = cache_dir.join(format!("{crate_name}.etag"));
-    let etag = match tokio::fs::try_exists(&etag_path).await? {
-        true => {
-            let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&etag_path).await?);
-            let mut buf = String::new();
-            reader.read_to_string(&mut buf).await?;
-            buf
-        }
-        false => {
-            warn!("cache exist but etag not found");
-            return Ok(None);
-        }
-    };
+        write_to_file(&self.dir.join(format!("{name}.etag")), &etag.0).await?;
+        write_to_file(&self.dir.join(name), value).await?;
 
-    Ok(Some((etag, cached_string)))
-}
-
-async fn store_cache(cache_dir: &Path, crate_name: &str, etag: &str, text: &str) -> Fallible<()> {
-    async fn write_to_file(p: &Path, data: &str) -> Fallible<()> {
-        let mut writer = tokio::io::BufWriter::new(tokio::fs::File::create(p).await?);
-        writer.write_all(data.as_bytes()).await?;
-        writer.flush().await?;
         Ok(())
     }
+}
 
-    let etag_path = cache_dir.join(format!("{crate_name}.etag"));
-    write_to_file(&etag_path, etag).await?;
+struct CratesIOClient<Cache: CratesCache> {
+    client: reqwest::Client,
+    base_url: Url,
+    cache: Cache,
+}
 
-    let cache_path = cache_dir.join(crate_name);
-    write_to_file(&cache_path, text).await?;
+impl<Cache: CratesCache> CratesIOClient<Cache> {
+    fn create(client: reqwest::Client, cache: Cache) -> Self {
+        Self::create_with_base_url(
+            client,
+            cache,
+            Url::parse("https://index.crates.io").expect("base_url"),
+        )
+    }
 
-    Ok(())
+    fn create_with_base_url(client: reqwest::Client, cache: Cache, base_url: Url) -> Self {
+        Self {
+            client,
+            base_url,
+            cache,
+        }
+    }
+
+    #[tracing::instrument(skip(self, pre_release))]
+    async fn fetch_latest_version(
+        &self,
+        crate_name: &str,
+        pre_release: bool,
+        force: bool,
+    ) -> Fallible<semver::Version> {
+        let target = self.base_url.join(&create_crate_path(crate_name))?;
+
+        let builder = self.client.get(target);
+
+        async fn request_get(builder: reqwest::RequestBuilder) -> Fallible<reqwest::Response> {
+            let res = builder.send().await?;
+            res.error_for_status_ref()
+                .context("server returned an error")?;
+            Ok(res)
+        }
+
+        let retrieve_and_store_text = |res: reqwest::Response| async move {
+            let etag =
+                res.headers()
+                    .get(reqwest::header::ETAG)
+                    .and_then(|data| match data.to_str() {
+                        Ok(etag) => Some(etag.to_string()),
+                        Err(e) => {
+                            warn!("failed to convert etag to text: {crate_name}, {:?}", e);
+                            None
+                        }
+                    });
+
+            debug!("retrieve body");
+            let text = res.text().await?;
+
+            if let Some(etag) = etag {
+                if let Err(e) = self.cache.save(crate_name, &ETag(etag), &text).await {
+                    warn!(?e, crate_name, "failed to store cache");
+                }
+            }
+
+            Result::<String, anyhow::Error>::Ok(text)
+        };
+
+        let text = match self.cache.load(crate_name).await {
+            Some((etag, text)) if !force => {
+                debug!(etag = %etag.0, "request w/ etag");
+                let res =
+                    request_get(builder.header(reqwest::header::IF_NONE_MATCH, &etag.0)).await?;
+
+                if res.status() == StatusCode::NOT_MODIFIED {
+                    debug!("use cache");
+                    text
+                } else {
+                    retrieve_and_store_text(res).await?
+                }
+            }
+            Some(_) | None => {
+                debug!("request");
+                let res = request_get(builder).await?;
+                retrieve_and_store_text(res).await?
+            }
+        };
+
+        trace!(%crate_name, %text);
+
+        let mut found = false;
+        let mut latest = semver::Version::new(0, 0, 0);
+        for line in text.lines() {
+            if line.is_empty() {
+                debug!("continue");
+                continue;
+            }
+
+            let line_version = serde_json::from_str::<CratesIOVersion>(line)?;
+            if line_version.yanked || (!line_version.vers.pre.is_empty() && !pre_release) {
+                continue;
+            }
+            if latest < line_version.vers {
+                found = true;
+                latest = line_version.vers;
+            }
+        }
+
+        if !found {
+            bail!("version not found: {crate_name}");
+        }
+
+        Ok(latest)
+    }
 }
 
 /// https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
@@ -428,6 +495,8 @@ struct Prefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use semver::{BuildMetadata, Prerelease};
+    use std::io::{BufReader, BufWriter, Read, Write};
 
     #[test]
     fn create_crate_path_1() {
@@ -592,5 +661,750 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
                 semver::Version::parse("0.11.24").unwrap()
             )]
         );
+    }
+
+    #[tokio::test]
+    async fn cache_load_ok() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
+                .write_all(b"etag value")
+                .unwrap();
+        }
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
+                .write_all(b"value")
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let (etag, value) = cache.load(crate_name).await.unwrap();
+        assert_eq!(etag.0, "etag value");
+        assert_eq!(value, "value");
+    }
+
+    #[tokio::test]
+    async fn cache_load_etag_missing() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
+                .write_all(b"value")
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_load_etag_open() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        std::fs::create_dir(cache_dir.join("foo.etag")).unwrap();
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
+                .write_all(b"value")
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_load_etag_binary() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
+                .write_all(&[255])
+                .unwrap();
+        }
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
+                .write_all(b"value")
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_load_value_missing() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
+                .write_all(b"etag value")
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_load_value_open() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
+                .write_all(b"etag value")
+                .unwrap();
+        }
+
+        std::fs::create_dir(cache_dir.join("foo")).unwrap();
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_load_value_binary() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
+                .write_all(b"etag value")
+                .unwrap();
+        }
+
+        {
+            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
+                .write_all(&[255])
+                .unwrap();
+        }
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        let actual = cache.load(crate_name).await;
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_save_ok_new() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        cache
+            .save(crate_name, &ETag("etag value".into()), "value")
+            .await
+            .unwrap();
+
+        let mut actual = String::new();
+
+        let mut reader = BufReader::new(File::open(cache_dir.join("foo.etag")).unwrap());
+        reader.read_to_string(&mut actual).unwrap();
+        assert_eq!(actual, "etag value");
+
+        actual.clear();
+        let mut reader = BufReader::new(File::open(cache_dir.join("foo")).unwrap());
+        reader.read_to_string(&mut actual).unwrap();
+        assert_eq!(actual, "value");
+    }
+
+    #[tokio::test]
+    async fn cache_save_ok_overrite() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        cache
+            .save(crate_name, &ETag("etag value 1".into()), "value 1")
+            .await
+            .unwrap();
+
+        cache
+            .save(crate_name, &ETag("etag value 2".into()), "value 2")
+            .await
+            .unwrap();
+
+        let mut actual = String::new();
+
+        let mut reader = BufReader::new(File::open(cache_dir.join("foo.etag")).unwrap());
+        reader.read_to_string(&mut actual).unwrap();
+        assert_eq!(actual, "etag value 2");
+
+        actual.clear();
+        let mut reader = BufReader::new(File::open(cache_dir.join("foo")).unwrap());
+        reader.read_to_string(&mut actual).unwrap();
+        assert_eq!(actual, "value 2");
+    }
+
+    #[tokio::test]
+    async fn cache_save_etag() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        std::fs::create_dir(cache_dir.join("foo.etag")).unwrap();
+
+        let actual = cache
+            .save(crate_name, &ETag("etag value".into()), "value")
+            .await;
+        assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    async fn cache_save_value() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_dir = tempdir.path();
+
+        let crate_name = "foo";
+
+        let cache = CratesCacheFile {
+            dir: cache_dir.to_owned(),
+        };
+
+        std::fs::create_dir(cache_dir.join("foo")).unwrap();
+
+        let actual = cache
+            .save(crate_name, &ETag("etag value".into()), "value")
+            .await;
+        assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_version_xz() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"xz","vers":"0.0.1","deps":[],"cksum":"","features":{},"yanked":false}
+{"name":"xz","vers":"0.1.0","deps":[],"cksum":"","features":{},"yanked":false}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/2/xz",
+            axum::routing::get(move || async {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Tue, 11 Apr 2023 17:09:33 GMT",
+                        ),
+                        (
+                            axum::http::header::ETAG,
+                            r#""baab9ec0fc5217fa7b52db8a449e504c""#,
+                        ),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo.fetch_latest_version("xz", false, false).await.unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 1,
+                patch: 0,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("xz").await.unwrap();
+        assert_eq!(
+            actual,
+            (
+                ETag(r#""baab9ec0fc5217fa7b52db8a449e504c""#.into()),
+                source.to_owned()
+            )
+        )
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_version_xz2() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"xz2","vers":"0.1.0","deps":[],"cksum":"","features":{},"yanked":false}
+{"name":"xz2","vers":"0.1.7","deps":[],"cksum":"","features":{},"yanked":false}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/3/x/xz2",
+            axum::routing::get(move || async {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Tue, 11 Apr 2023 17:16:03 GMT",
+                        ),
+                        (
+                            axum::http::header::ETAG,
+                            r#""617c77910fbb4ae29a41a00f56c5ee21""#,
+                        ),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo
+            .fetch_latest_version("xz2", false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 1,
+                patch: 7,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("xz2").await.unwrap();
+        assert_eq!(
+            actual,
+            (
+                ETag(r#""617c77910fbb4ae29a41a00f56c5ee21""#.into()),
+                source.to_owned()
+            )
+        )
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_version_infer() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"infer","vers":"0.1.0","deps":[],"cksum":"","features":{},"yanked":false}
+{"name":"infer","vers":"0.15.0","deps":[],"cksum":"","features":{},"yanked":false}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/in/fe/infer",
+            axum::routing::get(move || async {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Wed, 05 Jul 2023 00:38:22 GMT",
+                        ),
+                        (
+                            axum::http::header::ETAG,
+                            r#""42ba294804d05580ebc24a6cc38b424a""#,
+                        ),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo
+            .fetch_latest_version("infer", false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 15,
+                patch: 0,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("infer").await.unwrap();
+        assert_eq!(
+            actual,
+            (
+                ETag(r#""42ba294804d05580ebc24a6cc38b424a""#.into()),
+                source.to_owned()
+            )
+        )
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_version_yanked() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"foobar","vers":"0.1.0","deps":[],"cksum":"1234","features":{},"yanked":false}
+{"name":"foobar","vers":"0.2.0","deps":[],"cksum":"1234","features":{},"yanked":true}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/fo/ob/foobar",
+            axum::routing::get(|| async {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Wed, 05 Jul 2023 00:38:22 GMT",
+                        ),
+                        (axum::http::header::ETAG, r#""123abc""#),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo
+            .fetch_latest_version("foobar", false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 1,
+                patch: 0,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("foobar").await.unwrap();
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_version_yanked_all() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"foobar","vers":"0.1.0","deps":[],"cksum":"1234","features":{},"yanked":true}
+{"name":"foobar","vers":"0.2.0","deps":[],"cksum":"1234","features":{},"yanked":true}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/fo/ob/foobar",
+            axum::routing::get(|| async {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Wed, 05 Jul 2023 00:38:22 GMT",
+                        ),
+                        (axum::http::header::ETAG, r#""123abc""#),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo.fetch_latest_version("foobar", false, false).await;
+        assert!(actual.is_err());
+
+        let actual = repo.cache.load("foobar").await.unwrap();
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_etag_old() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"foobar","vers":"0.1.0","deps":[],"cksum":"1234","features":{},"yanked":false}
+{"name":"foobar","vers":"0.2.0","deps":[],"cksum":"1234","features":{},"yanked":false}
+                "#
+        .trim()
+        .to_owned();
+
+        let res_data = source.clone();
+
+        let router = axum::Router::new().route(
+            "/fo/ob/foobar",
+            axum::routing::get(|| async move {
+                (
+                    axum::http::StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, "text/plain"), // remove `;charset=utf-8`
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Wed, 05 Jul 2023 00:38:22 GMT",
+                        ),
+                        (axum::http::header::ETAG, r#""123abc""#),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                        (axum::http::header::ACCEPT_RANGES, "bytes"),
+                    ],
+                    res_data,
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        cache.save("foobar", &ETag("old".into()), "aaa").await.ok();
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo
+            .fetch_latest_version("foobar", false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 2,
+                patch: 0,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("foobar").await.unwrap();
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+    }
+
+    #[tokio::test]
+    async fn crates_io_client_fetch_latest_etag_same() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+
+        let source = r#"
+{"name":"foobar","vers":"0.1.0","deps":[],"cksum":"1234","features":{},"yanked":false}
+{"name":"foobar","vers":"0.2.0","deps":[],"cksum":"1234","features":{},"yanked":false}
+                "#
+        .trim()
+        .to_owned();
+
+        let router = axum::Router::new().route(
+            "/fo/ob/foobar",
+            axum::routing::get(|headers: axum::http::HeaderMap| async move {
+                let if_none_match = headers
+                    .get(axum::http::header::IF_NONE_MATCH)
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                assert_eq!(if_none_match, r#""123abc""#);
+
+                (
+                    axum::http::StatusCode::NOT_MODIFIED,
+                    [
+                        (
+                            axum::http::header::LAST_MODIFIED,
+                            "Wed, 05 Jul 2023 00:38:22 GMT",
+                        ),
+                        (axum::http::header::ETAG, r#""123abc""#),
+                        (axum::http::header::CACHE_CONTROL, "public,max-age=600"),
+                    ],
+                )
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache = CratesCacheFile {
+            dir: tmp_dir.path().to_owned(),
+        };
+
+        cache
+            .save("foobar", &ETag(r#""123abc""#.into()), &source)
+            .await
+            .ok();
+
+        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+
+        let actual = repo
+            .fetch_latest_version("foobar", false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual,
+            semver::Version {
+                major: 0,
+                minor: 2,
+                patch: 0,
+                pre: Prerelease::EMPTY,
+                build: BuildMetadata::EMPTY,
+            }
+        );
+
+        let actual = repo.cache.load("foobar").await.unwrap();
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+    }
+
+    #[allow(unused)]
+    fn enable_log() {
+        tracing_subscriber::fmt::fmt()
+            .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE)
+            .init();
     }
 }
