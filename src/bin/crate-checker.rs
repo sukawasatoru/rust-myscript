@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use reqwest::StatusCode;
+use rusqlite::{named_params, Connection};
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -28,7 +29,9 @@ use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
+use tinytable_rs::Type::{INTEGER, TEXT};
+use tinytable_rs::{column, Column, Table};
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -94,8 +97,9 @@ async fn main() -> Fallible<()> {
     }
 
     let cache_dir_sparse = cache_dir.join("sparse");
-    if !cache_dir_sparse.exists() {
-        create_dir_all(&*cache_dir_sparse)?;
+    if cache_dir_sparse.exists() {
+        info!("remove file caches");
+        std::fs::remove_dir_all(&cache_dir_sparse)?;
     }
 
     let repo_path = cache_dir.join("crates.io-index");
@@ -108,9 +112,7 @@ async fn main() -> Fallible<()> {
         reqwest::Client::builder()
             .user_agent("crate-checker")
             .build()?,
-        CratesCacheFile {
-            dir: cache_dir_sparse,
-        },
+        CratesCacheDb::create(Connection::open(cache_dir.join("cache.db"))?)?,
     ));
 
     let mut futs = futures::stream::FuturesOrdered::new();
@@ -207,7 +209,7 @@ fn read_crates<R: BufRead>(mut reader: R) -> Fallible<Vec<(String, semver::Versi
     Ok(crates)
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 struct ETag(String);
 
 trait CratesCache: Send {
@@ -221,87 +223,309 @@ trait CratesCache: Send {
     ) -> impl Future<Output = Fallible<()>> + Send;
 }
 
-struct CratesCacheFile {
-    dir: PathBuf,
+struct CacheTable {
+    crate_name: Arc<Column>,
+    etag: Arc<Column>,
+    age: Arc<Column>,
+    value: Arc<Column>,
+    columns: Vec<Arc<Column>>,
 }
 
-impl CratesCache for CratesCacheFile {
-    #[tracing::instrument(skip(self))]
-    async fn load(&self, name: &str) -> Option<(ETag, String)> {
-        let cache_path = self.dir.join(name);
+impl Default for CacheTable {
+    fn default() -> Self {
+        let crate_name = column("crate_name", TEXT, [PRIMARY_KEY, NOT_NULL]);
+        let etag = column("etag", TEXT, [NOT_NULL]);
+        let age = column("age", INTEGER, [NOT_NULL]);
+        let value = column("value", TEXT, [NOT_NULL]);
+        Self {
+            crate_name: crate_name.clone(),
+            etag: etag.clone(),
+            age: age.clone(),
+            value: value.clone(),
+            columns: vec![crate_name, etag, age, value],
+        }
+    }
+}
 
-        let exists = tokio::fs::try_exists(&cache_path)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(?e, cache_path = %cache_path.display(), "failed to perform metadata call");
-                false
-            });
-
-        let cached_string = if exists {
-            let mut reader = match tokio::fs::File::open(&cache_path).await {
-                Ok(data) => tokio::io::BufReader::new(data),
-                Err(e) => {
-                    warn!(?e, "failed to open file");
-                    return None;
-                }
-            };
-
-            let mut buf = String::new();
-            match reader.read_to_string(&mut buf).await {
-                Ok(_) => buf,
-                Err(e) => {
-                    warn!(?e, cache_path = %cache_path.display(), "read_to_string");
-                    return None;
-                }
-            }
-        } else {
-            debug!(cache_path = %cache_path.display(), "not found");
-            return None;
-        };
-
-        let etag_path = self.dir.join(format!("{name}.etag"));
-        let exists = tokio::fs::try_exists(&etag_path).await.unwrap_or_else(|e| {
-            warn!(?e, etag_path = %etag_path.display(), "failed to perform metadata call");
-            false
-        });
-
-        let etag = if exists {
-            let mut reader = match tokio::fs::File::open(&etag_path).await {
-                Ok(data) => tokio::io::BufReader::new(data),
-                Err(e) => {
-                    warn!(?e, etag_path = %etag_path.display(), "failed to open file");
-                    return None;
-                }
-            };
-
-            let mut buf = String::new();
-            match reader.read_to_string(&mut buf).await {
-                Ok(_) => ETag(buf),
-                Err(e) => {
-                    warn!(?e, etag_path = %etag_path.display(), "read_to_string");
-                    return None;
-                }
-            }
-        } else {
-            debug!(etag_path = %etag_path.display(), "not found");
-            return None;
-        };
-
-        Some((etag, cached_string))
+impl Table for CacheTable {
+    fn name(&self) -> &str {
+        "cache"
     }
 
-    async fn save(&self, name: &str, etag: &ETag, value: &str) -> Fallible<()> {
-        async fn write_to_file(p: &Path, data: &str) -> Fallible<()> {
-            let mut writer = tokio::io::BufWriter::new(tokio::fs::File::create(p).await?);
-            writer.write_all(data.as_bytes()).await?;
-            writer.flush().await?;
-            Ok(())
+    fn columns(&self) -> &[Arc<Column>] {
+        &self.columns
+    }
+}
+
+enum CratesCacheDbCommand {
+    Load {
+        crate_name: String,
+        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, String)>>,
+    },
+    Save {
+        crate_name: String,
+        etag: ETag,
+        value: String,
+        result_tx: tokio::sync::oneshot::Sender<()>,
+    },
+}
+
+struct CratesCacheDb {
+    tx: std::sync::mpsc::Sender<CratesCacheDbCommand>,
+}
+
+impl CratesCacheDb {
+    #[tracing::instrument(skip_all)]
+    fn create(conn: Connection) -> Fallible<Self> {
+        let table = CacheTable::default();
+
+        let db_version = conn.query_row("pragma user_version", [], |row| row.get::<_, i32>(0))?;
+        match db_version {
+            0 => {
+                let sqls = [table.create_sql()];
+                conn.execute_batch(&sqls.join(";"))?;
+
+                conn.execute("pragma user_version = 1", ())?;
+            }
+            1 => (),
+            _ => bail!("unsupported db version: {db_version}"),
         }
 
-        write_to_file(&self.dir.join(format!("{name}.etag")), &etag.0).await?;
-        write_to_file(&self.dir.join(name), value).await?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self::run_query_thread(conn, table, rx);
 
-        Ok(())
+        Ok(Self { tx })
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn run_query_thread(
+        mut conn: Connection,
+        table: CacheTable,
+        request_rx: std::sync::mpsc::Receiver<CratesCacheDbCommand>,
+    ) {
+        std::thread::spawn(move || loop {
+            match request_rx.recv() {
+                Ok(CratesCacheDbCommand::Load {
+                    crate_name,
+                    result_tx,
+                }) => {
+                    debug!("query thread on load");
+                    Self::select_crate(&mut conn, &table, crate_name, result_tx)
+                }
+                Ok(CratesCacheDbCommand::Save {
+                    crate_name,
+                    etag,
+                    value,
+                    result_tx,
+                }) => {
+                    debug!("query thread on save");
+                    Self::upsert_crate(&mut conn, &table, crate_name, etag, value, result_tx)
+                }
+                Err(_) => {
+                    debug!("stop query thread");
+                    break;
+                }
+            };
+        });
+    }
+
+    #[tracing::instrument(skip(conn, table, result_tx))]
+    fn select_crate(
+        conn: &mut Connection,
+        table: &CacheTable,
+        crate_name: String,
+        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, String)>>,
+    ) {
+        let tx = match conn.transaction() {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(?e, "conn.tx");
+                if result_tx.send(None).is_err() {
+                    warn!("send conn.tx result");
+                }
+                return;
+            }
+        };
+
+        let sql = format!(
+            "select {etag}, {value} from {table} where {crate_name} = :crate_name",
+            etag = table.etag.name(),
+            value = table.value.name(),
+            table = table.name(),
+            crate_name = table.crate_name.name(),
+        );
+
+        let mut stmt = match tx.prepare_cached(&sql) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(?e, "tx.stmt");
+                if result_tx.send(None).is_err() {
+                    warn!("send tx.stmt result");
+                }
+                return;
+            }
+        };
+
+        let ret_query = stmt.query(named_params! {
+            ":crate_name": crate_name,
+        });
+
+        let mut rows = match ret_query {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(?e, "stmt.query");
+                if result_tx.send(None).is_err() {
+                    warn!("send stmt.query result");
+                }
+                return;
+            }
+        };
+
+        match rows.next() {
+            Ok(Some(row)) => {
+                debug!("found");
+                let etag = match row.get::<_, String>(table.etag.name()) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!(?e, "row.get(etag)");
+                        if result_tx.send(None).is_err() {
+                            warn!("send row.get(etag) result");
+                        }
+                        return;
+                    }
+                };
+                let value = match row.get::<_, String>(table.value.name()) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!(?e, "row.get(value)");
+                        if result_tx.send(None).is_err() {
+                            warn!("send row.get(value) result");
+                        }
+                        return;
+                    }
+                };
+                if result_tx.send(Some((ETag(etag), value))).is_err() {
+                    warn!("send succeeded result");
+                }
+            }
+            Ok(None) => {
+                debug!("not found");
+                if result_tx.send(None).is_err() {
+                    warn!("send none result");
+                }
+            }
+            Err(e) => {
+                warn!(?e, "rows.next");
+                if result_tx.send(None).is_err() {
+                    warn!("send rows.next result");
+                }
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(conn, table, result_tx))]
+    fn upsert_crate(
+        conn: &mut Connection,
+        table: &CacheTable,
+        crate_name: String,
+        etag: ETag,
+        value: String,
+        result_tx: tokio::sync::oneshot::Sender<()>,
+    ) {
+        let tx = match conn.transaction() {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(?e, "conn.tx");
+                if let Err(_e) = result_tx.send(()) {
+                    warn!("send conn.tx result");
+                }
+                return;
+            }
+        };
+
+        let sql = format!(
+            "insert or replace into {table} ({crate_name}, {etag}, {age}, {value}) values(:crate_name, :etag, :age, :value)",
+            table = table.name(),
+            crate_name = table.crate_name.name(),
+            etag = table.etag.name(),
+            age = table.age.name(),
+            value = table.value.name(),
+        );
+
+        let mut stmt = match tx.prepare_cached(&sql) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(?e, "tx.stmt");
+                if result_tx.send(()).is_err() {
+                    warn!("send tx.stmt result");
+                }
+                return;
+            }
+        };
+
+        let ret_query = stmt.execute(named_params! {
+            ":crate_name": crate_name,
+            ":etag": etag.0,
+            ":age": 600,
+            ":value": value,
+        });
+        drop(stmt);
+
+        match ret_query {
+            Ok(1) => match tx.commit() {
+                Ok(_) => {}
+                Err(e) => warn!(?e, "tx.commit"),
+            },
+            Ok(_) => warn!("unexpected affect num"),
+            Err(e) => warn!(?e, "stmt.query"),
+        };
+
+        if result_tx.send(()).is_err() {
+            warn!("send result");
+        }
+    }
+}
+
+impl CratesCache for CratesCacheDb {
+    #[tracing::instrument(skip(self))]
+    async fn load(&self, name: &str) -> Option<(ETag, String)> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        match self.tx.send(CratesCacheDbCommand::Load {
+            crate_name: name.to_owned(),
+            result_tx: tx,
+        }) {
+            Ok(_) => {}
+            Err(_) => {
+                warn!("failed to send request");
+                return None;
+            }
+        }
+
+        match rx.await {
+            Ok(data) => data,
+            Err(_) => {
+                warn!("thread closed");
+                return None;
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn save(&self, name: &str, etag: &ETag, value: &str) -> Fallible<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.tx
+            .send(CratesCacheDbCommand::Save {
+                crate_name: name.to_owned(),
+                etag: etag.clone(),
+                value: value.to_owned(),
+                result_tx: tx,
+            })
+            .context("failed to send request")?;
+
+        match rx.await {
+            Ok(_) => Ok(()),
+            Err(_) => bail!("thread closed"),
+        }
     }
 }
 
@@ -496,7 +720,6 @@ struct Prefs {
 mod tests {
     use super::*;
     use semver::{BuildMetadata, Prerelease};
-    use std::io::{BufReader, BufWriter, Read, Write};
 
     #[test]
     fn create_crate_path_1() {
@@ -664,272 +887,38 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
     }
 
     #[tokio::test]
-    async fn cache_load_ok() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
+    async fn cache_db_save_ok_new() {
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let crate_name = "foo";
+        cache
+            .save("foo", &ETag("etag value".into()), "value")
+            .await
+            .unwrap();
 
-        {
-            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
-                .write_all(b"etag value")
-                .unwrap();
-        }
+        let (etag, value) = cache.load("foo").await.unwrap();
 
-        {
-            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
-                .write_all(b"value")
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let (etag, value) = cache.load(crate_name).await.unwrap();
-        assert_eq!(etag.0, "etag value");
+        assert_eq!(etag, ETag("etag value".into()));
         assert_eq!(value, "value");
     }
 
     #[tokio::test]
-    async fn cache_load_etag_missing() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
-                .write_all(b"value")
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_load_etag_open() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        std::fs::create_dir(cache_dir.join("foo.etag")).unwrap();
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
-                .write_all(b"value")
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_load_etag_binary() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
-                .write_all(&[255])
-                .unwrap();
-        }
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
-                .write_all(b"value")
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_load_value_missing() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
-                .write_all(b"etag value")
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_load_value_open() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
-                .write_all(b"etag value")
-                .unwrap();
-        }
-
-        std::fs::create_dir(cache_dir.join("foo")).unwrap();
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_load_value_binary() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo.etag")).unwrap())
-                .write_all(b"etag value")
-                .unwrap();
-        }
-
-        {
-            BufWriter::new(File::create(cache_dir.join("foo")).unwrap())
-                .write_all(&[255])
-                .unwrap();
-        }
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        let actual = cache.load(crate_name).await;
-        assert!(actual.is_none());
-    }
-
-    #[tokio::test]
-    async fn cache_save_ok_new() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
+    async fn cache_db_save_ok_overwrite() {
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache
-            .save(crate_name, &ETag("etag value".into()), "value")
-            .await
-            .unwrap();
-
-        let mut actual = String::new();
-
-        let mut reader = BufReader::new(File::open(cache_dir.join("foo.etag")).unwrap());
-        reader.read_to_string(&mut actual).unwrap();
-        assert_eq!(actual, "etag value");
-
-        actual.clear();
-        let mut reader = BufReader::new(File::open(cache_dir.join("foo")).unwrap());
-        reader.read_to_string(&mut actual).unwrap();
-        assert_eq!(actual, "value");
-    }
-
-    #[tokio::test]
-    async fn cache_save_ok_overrite() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        cache
-            .save(crate_name, &ETag("etag value 1".into()), "value 1")
+            .save("foo", &ETag("etag value 1".into()), "value 1")
             .await
             .unwrap();
 
         cache
-            .save(crate_name, &ETag("etag value 2".into()), "value 2")
+            .save("foo", &ETag("etag value 2".into()), "value 2")
             .await
             .unwrap();
 
-        let mut actual = String::new();
+        let (etag, value) = cache.load("foo").await.unwrap();
 
-        let mut reader = BufReader::new(File::open(cache_dir.join("foo.etag")).unwrap());
-        reader.read_to_string(&mut actual).unwrap();
-        assert_eq!(actual, "etag value 2");
-
-        actual.clear();
-        let mut reader = BufReader::new(File::open(cache_dir.join("foo")).unwrap());
-        reader.read_to_string(&mut actual).unwrap();
-        assert_eq!(actual, "value 2");
-    }
-
-    #[tokio::test]
-    async fn cache_save_etag() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        std::fs::create_dir(cache_dir.join("foo.etag")).unwrap();
-
-        let actual = cache
-            .save(crate_name, &ETag("etag value".into()), "value")
-            .await;
-        assert!(actual.is_err());
-    }
-
-    #[tokio::test]
-    async fn cache_save_value() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let cache_dir = tempdir.path();
-
-        let crate_name = "foo";
-
-        let cache = CratesCacheFile {
-            dir: cache_dir.to_owned(),
-        };
-
-        std::fs::create_dir(cache_dir.join("foo")).unwrap();
-
-        let actual = cache
-            .save(crate_name, &ETag("etag value".into()), "value")
-            .await;
-        assert!(actual.is_err());
+        assert_eq!(etag, ETag("etag value 2".into()));
+        assert_eq!(value, "value 2");
     }
 
     #[tokio::test]
@@ -973,10 +962,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
 
@@ -1043,10 +1029,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
 
@@ -1116,10 +1099,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
 
@@ -1186,10 +1166,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
 
@@ -1250,10 +1227,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
 
@@ -1302,10 +1276,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache.save("foobar", &ETag("old".into()), "aaa").await.ok();
 
@@ -1370,10 +1341,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             axum::serve(listener, router).await.unwrap();
         });
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let cache = CratesCacheFile {
-            dir: tmp_dir.path().to_owned(),
-        };
+        let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache
             .save("foobar", &ETag(r#""123abc""#.into()), &source)
