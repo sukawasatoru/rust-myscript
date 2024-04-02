@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use reqwest::StatusCode;
-use rusqlite::{named_params, Connection};
+use rusqlite::{named_params, Connection, Transaction};
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -28,7 +28,9 @@ use std::fs::{create_dir_all, File};
 use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::{INTEGER, TEXT};
 use tinytable_rs::{column, Column, Table};
@@ -271,7 +273,8 @@ enum CratesCacheDbCommand {
 }
 
 struct CratesCacheDb {
-    tx: std::sync::mpsc::Sender<CratesCacheDbCommand>,
+    tx: Option<std::sync::mpsc::Sender<CratesCacheDbCommand>>,
+    query_thread_handle: Option<JoinHandle<()>>,
 }
 
 impl CratesCacheDb {
@@ -279,6 +282,14 @@ impl CratesCacheDb {
     fn create(conn: Connection) -> Fallible<Self> {
         let table = CacheTable::default();
 
+        conn.execute_batch(
+            r#"
+pragma journal_mode = wal;
+pragma foreign_keys = on;
+"#
+            .trim(),
+        )?;
+        conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         let db_version = conn.query_row("pragma user_version", [], |row| row.get::<_, i32>(0))?;
         match db_version {
             0 => {
@@ -292,9 +303,12 @@ impl CratesCacheDb {
         }
 
         let (tx, rx) = std::sync::mpsc::channel();
-        Self::run_query_thread(conn, table, rx);
+        let query_thread_handle = Self::run_query_thread(conn, table, rx);
 
-        Ok(Self { tx })
+        Ok(Self {
+            tx: Some(tx),
+            query_thread_handle: Some(query_thread_handle),
+        })
     }
 
     #[tracing::instrument(skip_all)]
@@ -302,51 +316,91 @@ impl CratesCacheDb {
         mut conn: Connection,
         table: CacheTable,
         request_rx: std::sync::mpsc::Receiver<CratesCacheDbCommand>,
-    ) {
-        std::thread::spawn(move || loop {
-            match request_rx.recv() {
-                Ok(CratesCacheDbCommand::Load {
-                    crate_name,
-                    result_tx,
-                }) => {
-                    debug!("query thread on load");
-                    Self::select_crate(&mut conn, &table, crate_name, result_tx)
+    ) -> JoinHandle<()> {
+        std::thread::Builder::new()
+            .name("query-thread".into())
+            .spawn(move || loop {
+                let mut tx = match conn.transaction() {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(?e, "conn.tx");
+                        return;
+                    }
+                };
+
+                match request_rx.recv() {
+                    Ok(command) => {
+                        Self::command_handler(&mut tx, &table, command);
+                    }
+                    Err(_) => {
+                        debug!("stop query thread");
+                        if let Err(e) = tx.commit() {
+                            error!(?e, "tx.commit");
+                        }
+                        return;
+                    }
                 }
-                Ok(CratesCacheDbCommand::Save {
-                    crate_name,
-                    etag,
-                    value,
-                    result_tx,
-                }) => {
-                    debug!("query thread on save");
-                    Self::upsert_crate(&mut conn, &table, crate_name, etag, value, result_tx)
+
+                let mut is_batch = false;
+                loop {
+                    match request_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(command) => {
+                            debug!("batch");
+                            is_batch = true;
+                            Self::command_handler(&mut tx, &table, command);
+                        }
+                        Err(RecvTimeoutError::Timeout) if is_batch => {
+                            debug!("batch end");
+                            break;
+                        }
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => {
+                            debug!("stop query thread");
+                            if let Err(e) = tx.commit() {
+                                error!(?e, "tx.commit");
+                            }
+                            return;
+                        }
+                    }
                 }
-                Err(_) => {
-                    debug!("stop query thread");
-                    break;
+
+                if let Err(e) = tx.commit() {
+                    error!(?e, "tx.commit");
+                    return;
                 }
-            };
-        });
+            })
+            .expect("failed to spawn thread")
     }
 
-    #[tracing::instrument(skip(conn, table, result_tx))]
+    #[tracing::instrument(skip_all)]
+    fn command_handler(tx: &mut Transaction, table: &CacheTable, command: CratesCacheDbCommand) {
+        match command {
+            CratesCacheDbCommand::Load {
+                crate_name,
+                result_tx,
+            } => {
+                debug!(%crate_name, "load on query thread");
+                Self::select_crate(tx, table, crate_name, result_tx)
+            }
+            CratesCacheDbCommand::Save {
+                crate_name,
+                etag,
+                value,
+                result_tx,
+            } => {
+                debug!(%crate_name, "save on query thread");
+                Self::upsert_crate(tx, table, crate_name, etag, value, result_tx)
+            }
+        };
+    }
+
+    #[tracing::instrument(skip(tx, table, result_tx))]
     fn select_crate(
-        conn: &mut Connection,
+        tx: &mut Transaction,
         table: &CacheTable,
         crate_name: String,
         result_tx: tokio::sync::oneshot::Sender<Option<(ETag, String)>>,
     ) {
-        let tx = match conn.transaction() {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(?e, "conn.tx");
-                if result_tx.send(None).is_err() {
-                    warn!("send conn.tx result");
-                }
-                return;
-            }
-        };
-
         let sql = format!(
             "select {etag}, {value} from {table} where {crate_name} = :crate_name",
             etag = table.etag.name(),
@@ -423,26 +477,15 @@ impl CratesCacheDb {
         }
     }
 
-    #[tracing::instrument(skip(conn, table, result_tx))]
+    #[tracing::instrument(skip(tx, table, result_tx))]
     fn upsert_crate(
-        conn: &mut Connection,
+        tx: &mut Transaction,
         table: &CacheTable,
         crate_name: String,
         etag: ETag,
         value: String,
         result_tx: tokio::sync::oneshot::Sender<()>,
     ) {
-        let tx = match conn.transaction() {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(?e, "conn.tx");
-                if let Err(_e) = result_tx.send(()) {
-                    warn!("send conn.tx result");
-                }
-                return;
-            }
-        };
-
         let sql = format!(
             "insert or replace into {table} ({crate_name}, {etag}, {age}, {value}) values(:crate_name, :etag, :age, :value)",
             table = table.name(),
@@ -472,11 +515,8 @@ impl CratesCacheDb {
         drop(stmt);
 
         match ret_query {
-            Ok(1) => match tx.commit() {
-                Ok(_) => {}
-                Err(e) => warn!(?e, "tx.commit"),
-            },
-            Ok(_) => warn!("unexpected affect num"),
+            Ok(1) => {}
+            Ok(num) => warn!(%num, "unexpected affect num"),
             Err(e) => warn!(?e, "stmt.query"),
         };
 
@@ -486,14 +526,30 @@ impl CratesCacheDb {
     }
 }
 
+impl Drop for CratesCacheDb {
+    fn drop(&mut self) {
+        let _ = self.tx.take().expect("CratesCacheDb.tx should be Some()");
+
+        self.query_thread_handle
+            .take()
+            .expect("CratesCacheDb.handle should be Some()")
+            .join()
+            .unwrap();
+    }
+}
+
 impl CratesCache for CratesCacheDb {
     #[tracing::instrument(skip(self))]
     async fn load(&self, name: &str) -> Option<(ETag, String)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        match self.tx.send(CratesCacheDbCommand::Load {
-            crate_name: name.to_owned(),
-            result_tx: tx,
-        }) {
+        match self
+            .tx
+            .as_ref()
+            .expect("CratesCacheDb.tx should be Some()")
+            .send(CratesCacheDbCommand::Load {
+                crate_name: name.to_owned(),
+                result_tx: tx,
+            }) {
             Ok(_) => {}
             Err(_) => {
                 warn!("failed to send request");
@@ -514,6 +570,8 @@ impl CratesCache for CratesCacheDb {
     async fn save(&self, name: &str, etag: &ETag, value: &str) -> Fallible<()> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.tx
+            .as_ref()
+            .expect("CratesCacheDb.tx should be Some()")
             .send(CratesCacheDbCommand::Save {
                 crate_name: name.to_owned(),
                 etag: etag.clone(),

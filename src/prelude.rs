@@ -1,5 +1,5 @@
 pub use anyhow::{bail, ensure, Context as _, Result as Fallible};
-pub use tracing::{debug, info, trace, warn};
+pub use tracing::{debug, error, info, trace, warn};
 
 #[derive(Default)]
 pub struct TomlLoader {
