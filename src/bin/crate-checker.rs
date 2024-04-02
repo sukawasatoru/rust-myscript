@@ -17,6 +17,7 @@
 use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
+use regex::Regex;
 use reqwest::StatusCode;
 use rusqlite::{named_params, Connection, Transaction};
 use rust_myscript::prelude::*;
@@ -29,7 +30,7 @@ use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::{INTEGER, TEXT};
@@ -215,12 +216,13 @@ fn read_crates<R: BufRead>(mut reader: R) -> Fallible<Vec<(String, semver::Versi
 struct ETag(String);
 
 trait CratesCache: Send {
-    fn load(&self, name: &str) -> impl Future<Output = Option<(ETag, String)>> + Send;
+    fn load(&self, name: &str) -> impl Future<Output = Option<(ETag, i64, String)>> + Send;
 
     fn save(
         &self,
         name: &str,
         etag: &ETag,
+        age: i64,
         value: &str,
     ) -> impl Future<Output = Fallible<()>> + Send;
 }
@@ -262,11 +264,12 @@ impl Table for CacheTable {
 enum CratesCacheDbCommand {
     Load {
         crate_name: String,
-        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, String)>>,
+        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, i64, String)>>,
     },
     Save {
         crate_name: String,
         etag: ETag,
+        age: i64,
         value: String,
         result_tx: tokio::sync::oneshot::Sender<()>,
     },
@@ -385,11 +388,12 @@ pragma foreign_keys = on;
             CratesCacheDbCommand::Save {
                 crate_name,
                 etag,
+                age,
                 value,
                 result_tx,
             } => {
                 debug!(%crate_name, "save on query thread");
-                Self::upsert_crate(tx, table, crate_name, etag, value, result_tx)
+                Self::upsert_crate(tx, table, crate_name, etag, age, value, result_tx)
             }
         };
     }
@@ -399,11 +403,12 @@ pragma foreign_keys = on;
         tx: &mut Transaction,
         table: &CacheTable,
         crate_name: String,
-        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, String)>>,
+        result_tx: tokio::sync::oneshot::Sender<Option<(ETag, i64, String)>>,
     ) {
         let sql = format!(
-            "select {etag}, {value} from {table} where {crate_name} = :crate_name",
+            "select {etag}, {age}, {value} from {table} where {crate_name} = :crate_name",
             etag = table.etag.name(),
+            age = table.age.name(),
             value = table.value.name(),
             table = table.name(),
             crate_name = table.crate_name.name(),
@@ -448,6 +453,16 @@ pragma foreign_keys = on;
                         return;
                     }
                 };
+                let age = match row.get::<_, i64>(table.age.name()) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!(?e, "row.get(age)");
+                        if result_tx.send(None).is_err() {
+                            warn!("send row.get(age) result");
+                        }
+                        return;
+                    }
+                };
                 let value = match row.get::<_, String>(table.value.name()) {
                     Ok(data) => data,
                     Err(e) => {
@@ -458,7 +473,7 @@ pragma foreign_keys = on;
                         return;
                     }
                 };
-                if result_tx.send(Some((ETag(etag), value))).is_err() {
+                if result_tx.send(Some((ETag(etag), age, value))).is_err() {
                     warn!("send succeeded result");
                 }
             }
@@ -483,6 +498,7 @@ pragma foreign_keys = on;
         table: &CacheTable,
         crate_name: String,
         etag: ETag,
+        age: i64,
         value: String,
         result_tx: tokio::sync::oneshot::Sender<()>,
     ) {
@@ -509,7 +525,7 @@ pragma foreign_keys = on;
         let ret_query = stmt.execute(named_params! {
             ":crate_name": crate_name,
             ":etag": etag.0,
-            ":age": 600,
+            ":age": age,
             ":value": value,
         });
         drop(stmt);
@@ -540,7 +556,7 @@ impl Drop for CratesCacheDb {
 
 impl CratesCache for CratesCacheDb {
     #[tracing::instrument(skip(self))]
-    async fn load(&self, name: &str) -> Option<(ETag, String)> {
+    async fn load(&self, name: &str) -> Option<(ETag, i64, String)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         match self
             .tx
@@ -567,7 +583,7 @@ impl CratesCache for CratesCacheDb {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn save(&self, name: &str, etag: &ETag, value: &str) -> Fallible<()> {
+    async fn save(&self, name: &str, etag: &ETag, age: i64, value: &str) -> Fallible<()> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.tx
             .as_ref()
@@ -575,6 +591,7 @@ impl CratesCache for CratesCacheDb {
             .send(CratesCacheDbCommand::Save {
                 crate_name: name.to_owned(),
                 etag: etag.clone(),
+                age,
                 value: value.to_owned(),
                 result_tx: tx,
             })
@@ -587,26 +604,52 @@ impl CratesCache for CratesCacheDb {
     }
 }
 
-struct CratesIOClient<Cache: CratesCache> {
+fn init_reg_max_age() -> Regex {
+    Regex::new(r#"max-age=(\d+)"#).expect("max-age")
+}
+
+trait TimestampProvider {
+    fn timestamp(&self) -> i64;
+}
+
+struct DefaultTimestampProvider;
+
+impl TimestampProvider for DefaultTimestampProvider {
+    fn timestamp(&self) -> i64 {
+        Utc::now().timestamp()
+    }
+}
+
+struct CratesIOClient<Cache: CratesCache, TP: TimestampProvider> {
     client: reqwest::Client,
     base_url: Url,
     cache: Cache,
+    timestamp_provider: TP,
 }
 
-impl<Cache: CratesCache> CratesIOClient<Cache> {
+impl<Cache: CratesCache> CratesIOClient<Cache, DefaultTimestampProvider> {
     fn create(client: reqwest::Client, cache: Cache) -> Self {
-        Self::create_with_base_url(
+        Self::create_impl(
             client,
             cache,
             Url::parse("https://index.crates.io").expect("base_url"),
+            DefaultTimestampProvider,
         )
     }
+}
 
-    fn create_with_base_url(client: reqwest::Client, cache: Cache, base_url: Url) -> Self {
+impl<Cache: CratesCache, TP: TimestampProvider> CratesIOClient<Cache, TP> {
+    fn create_impl(
+        client: reqwest::Client,
+        cache: Cache,
+        base_url: Url,
+        timestamp_provider: TP,
+    ) -> Self {
         Self {
             client,
             base_url,
             cache,
+            timestamp_provider,
         }
     }
 
@@ -628,6 +671,26 @@ impl<Cache: CratesCache> CratesIOClient<Cache> {
             Ok(res)
         }
 
+        let compute_age = |res: &reqwest::Response| {
+            let age = res
+                .headers()
+                .get(reqwest::header::AGE)
+                .and_then(|data| data.to_str().ok())
+                .and_then(|data| data.parse::<u32>().ok())
+                .unwrap_or(0);
+
+            static REG_MAX_AGE: OnceLock<Regex> = OnceLock::new();
+            let reg = REG_MAX_AGE.get_or_init(init_reg_max_age);
+            res.headers()
+                .get(reqwest::header::CACHE_CONTROL)
+                .and_then(|data| data.to_str().ok())
+                .and_then(|data| reg.captures(data))
+                .and_then(|data| data.get(1))
+                .and_then(|data| data.as_str().parse::<u32>().ok())
+                .map(|max_age| self.timestamp_provider.timestamp() + i64::from(max_age - age))
+                .unwrap_or(0)
+        };
+
         let retrieve_and_store_text = |res: reqwest::Response| async move {
             let etag =
                 res.headers()
@@ -640,11 +703,13 @@ impl<Cache: CratesCache> CratesIOClient<Cache> {
                         }
                     });
 
+            let age = compute_age(&res);
+
             debug!("retrieve body");
             let text = res.text().await?;
 
             if let Some(etag) = etag {
-                if let Err(e) = self.cache.save(crate_name, &ETag(etag), &text).await {
+                if let Err(e) = self.cache.save(crate_name, &ETag(etag), age, &text).await {
                     warn!(?e, crate_name, "failed to store cache");
                 }
             }
@@ -653,16 +718,25 @@ impl<Cache: CratesCache> CratesIOClient<Cache> {
         };
 
         let text = match self.cache.load(crate_name).await {
-            Some((etag, text)) if !force => {
-                debug!(etag = %etag.0, "request w/ etag");
-                let res =
-                    request_get(builder.header(reqwest::header::IF_NONE_MATCH, &etag.0)).await?;
+            Some((etag, age, text)) if !force => {
+                if age < self.timestamp_provider.timestamp() {
+                    debug!(etag = %etag.0, %age, "request w/ etag");
+                    let res = request_get(builder.header(reqwest::header::IF_NONE_MATCH, &etag.0))
+                        .await?;
 
-                if res.status() == StatusCode::NOT_MODIFIED {
-                    debug!("use cache");
-                    text
+                    if res.status() == StatusCode::NOT_MODIFIED {
+                        debug!("use cache");
+                        let age = compute_age(&res);
+                        if let Err(e) = self.cache.save(crate_name, &etag, age, &text).await {
+                            warn!(?e, "failed to update age");
+                        }
+                        text
+                    } else {
+                        retrieve_and_store_text(res).await?
+                    }
                 } else {
-                    retrieve_and_store_text(res).await?
+                    debug!(etag = %etag.0, %age, "request skip (use cache)");
+                    text
                 }
             }
             Some(_) | None => {
@@ -949,13 +1023,14 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache
-            .save("foo", &ETag("etag value".into()), "value")
+            .save("foo", &ETag("etag value".into()), 1, "value")
             .await
             .unwrap();
 
-        let (etag, value) = cache.load("foo").await.unwrap();
+        let (etag, age, value) = cache.load("foo").await.unwrap();
 
         assert_eq!(etag, ETag("etag value".into()));
+        assert_eq!(age, 1);
         assert_eq!(value, "value");
     }
 
@@ -964,19 +1039,27 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache
-            .save("foo", &ETag("etag value 1".into()), "value 1")
+            .save("foo", &ETag("etag value 1".into()), 1, "value 1")
             .await
             .unwrap();
 
         cache
-            .save("foo", &ETag("etag value 2".into()), "value 2")
+            .save("foo", &ETag("etag value 2".into()), 2, "value 2")
             .await
             .unwrap();
 
-        let (etag, value) = cache.load("foo").await.unwrap();
+        let (etag, age, value) = cache.load("foo").await.unwrap();
 
         assert_eq!(etag, ETag("etag value 2".into()));
+        assert_eq!(age, 2);
         assert_eq!(value, "value 2");
+    }
+
+    struct TestTimestampProvider;
+    impl TimestampProvider for TestTimestampProvider {
+        fn timestamp(&self) -> i64 {
+            0
+        }
     }
 
     #[tokio::test]
@@ -1022,7 +1105,12 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo.fetch_latest_version("xz", false, false).await.unwrap();
         assert_eq!(
@@ -1041,6 +1129,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             actual,
             (
                 ETag(r#""baab9ec0fc5217fa7b52db8a449e504c""#.into()),
+                600,
                 source.to_owned()
             )
         )
@@ -1089,7 +1178,12 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo
             .fetch_latest_version("xz2", false, false)
@@ -1111,6 +1205,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             actual,
             (
                 ETag(r#""617c77910fbb4ae29a41a00f56c5ee21""#.into()),
+                600,
                 source.to_owned()
             )
         )
@@ -1159,7 +1254,12 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo
             .fetch_latest_version("infer", false, false)
@@ -1181,6 +1281,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
             actual,
             (
                 ETag(r#""42ba294804d05580ebc24a6cc38b424a""#.into()),
+                600,
                 source.to_owned()
             )
         )
@@ -1226,7 +1327,12 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo
             .fetch_latest_version("foobar", false, false)
@@ -1244,7 +1350,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         );
 
         let actual = repo.cache.load("foobar").await.unwrap();
-        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), 600, source.to_owned()))
     }
 
     #[tokio::test]
@@ -1287,13 +1393,18 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo.fetch_latest_version("foobar", false, false).await;
         assert!(actual.is_err());
 
         let actual = repo.cache.load("foobar").await.unwrap();
-        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), 600, source.to_owned()))
     }
 
     #[tokio::test]
@@ -1336,9 +1447,17 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
 
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
-        cache.save("foobar", &ETag("old".into()), "aaa").await.ok();
+        cache
+            .save("foobar", &ETag("old".into()), -1, "aaa")
+            .await
+            .ok();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo
             .fetch_latest_version("foobar", false, false)
@@ -1356,7 +1475,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         );
 
         let actual = repo.cache.load("foobar").await.unwrap();
-        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), 600, source.to_owned()))
     }
 
     #[tokio::test]
@@ -1402,11 +1521,16 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         let cache = CratesCacheDb::create(Connection::open_in_memory().unwrap()).unwrap();
 
         cache
-            .save("foobar", &ETag(r#""123abc""#.into()), &source)
+            .save("foobar", &ETag(r#""123abc""#.into()), -1, &source)
             .await
             .ok();
 
-        let repo = CratesIOClient::create_with_base_url(reqwest::Client::new(), cache, base_url);
+        let repo = CratesIOClient::create_impl(
+            reqwest::Client::new(),
+            cache,
+            base_url,
+            TestTimestampProvider,
+        );
 
         let actual = repo
             .fetch_latest_version("foobar", false, false)
@@ -1424,7 +1548,7 @@ reqwest = { version = "=0.11.24", features = ["blocking", "json", "brotli", "gzi
         );
 
         let actual = repo.cache.load("foobar").await.unwrap();
-        assert_eq!(actual, (ETag(r#""123abc""#.into()), source.to_owned()))
+        assert_eq!(actual, (ETag(r#""123abc""#.into()), 600, source.to_owned()))
     }
 
     #[allow(unused)]
