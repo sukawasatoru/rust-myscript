@@ -322,42 +322,23 @@ pragma foreign_keys = on;
     ) -> JoinHandle<()> {
         std::thread::Builder::new()
             .name("query-thread".into())
-            .spawn(move || loop {
-                let mut tx = match conn.transaction() {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!(?e, "conn.tx");
-                        return;
-                    }
-                };
-
-                match request_rx.recv() {
-                    Ok(command) => {
-                        Self::command_handler(&mut tx, &table, command);
-                    }
-                    Err(_) => {
-                        debug!("stop query thread");
-                        if let Err(e) = tx.commit() {
-                            error!(?e, "tx.commit");
-                        }
-                        return;
-                    }
-                }
-
-                let mut is_batch = false;
+            .spawn(move || {
+                let span = info_span!("query-thread");
+                let _enter = span.enter();
                 loop {
-                    match request_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    let mut tx = match conn.transaction() {
+                        Ok(data) => data,
+                        Err(e) => {
+                            error!(?e, "conn.tx");
+                            return;
+                        }
+                    };
+
+                    match request_rx.recv() {
                         Ok(command) => {
-                            debug!("batch");
-                            is_batch = true;
                             Self::command_handler(&mut tx, &table, command);
                         }
-                        Err(RecvTimeoutError::Timeout) if is_batch => {
-                            debug!("batch end");
-                            break;
-                        }
-                        Err(RecvTimeoutError::Timeout) => break,
-                        Err(RecvTimeoutError::Disconnected) => {
+                        Err(_) => {
                             debug!("stop query thread");
                             if let Err(e) = tx.commit() {
                                 error!(?e, "tx.commit");
@@ -365,11 +346,34 @@ pragma foreign_keys = on;
                             return;
                         }
                     }
-                }
 
-                if let Err(e) = tx.commit() {
-                    error!(?e, "tx.commit");
-                    return;
+                    let mut is_batch = false;
+                    loop {
+                        match request_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                            Ok(command) => {
+                                debug!("batch");
+                                is_batch = true;
+                                Self::command_handler(&mut tx, &table, command);
+                            }
+                            Err(RecvTimeoutError::Timeout) if is_batch => {
+                                debug!("batch end");
+                                break;
+                            }
+                            Err(RecvTimeoutError::Timeout) => break,
+                            Err(RecvTimeoutError::Disconnected) => {
+                                debug!("stop query thread");
+                                if let Err(e) = tx.commit() {
+                                    error!(?e, "tx.commit");
+                                }
+                                return;
+                            }
+                        }
+                    }
+
+                    if let Err(e) = tx.commit() {
+                        error!(?e, "tx.commit");
+                        return;
+                    }
                 }
             })
             .expect("failed to spawn thread")
@@ -382,7 +386,7 @@ pragma foreign_keys = on;
                 crate_name,
                 result_tx,
             } => {
-                debug!(%crate_name, "load on query thread");
+                debug!(%crate_name, "load");
                 Self::select_crate(tx, table, crate_name, result_tx)
             }
             CratesCacheDbCommand::Save {
@@ -392,7 +396,7 @@ pragma foreign_keys = on;
                 value,
                 result_tx,
             } => {
-                debug!(%crate_name, "save on query thread");
+                debug!(%crate_name, "save");
                 Self::upsert_crate(tx, table, crate_name, etag, age, value, result_tx)
             }
         };

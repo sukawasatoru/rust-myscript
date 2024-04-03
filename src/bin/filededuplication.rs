@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ret
             }
-            .instrument(tracing::info_span!("fut", index)),
+            .instrument(info_span!("fut", index)),
         );
         futs.push(fut);
     }
