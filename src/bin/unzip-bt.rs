@@ -33,6 +33,9 @@ struct Opt {
     #[clap(short, long, default_value_t = num_cpus::get() + 1)]
     threads: usize,
 
+    #[clap(short, long, default_value = "0")]
+    start_length: usize,
+
     /// Zip file.
     #[clap(value_hint = ValueHint::FilePath)]
     file: PathBuf,
@@ -68,7 +71,7 @@ fn main() -> Fallible<()> {
     }
 
     let (tx, rx) = tokio::sync::watch::channel(false);
-    let next_base_password = Arc::new(next_password_generator());
+    let next_base_password = Arc::new(next_password_generator(opt.start_length));
 
     let start_time = std::time::Instant::now();
     let bars = indicatif::MultiProgress::new();
@@ -81,6 +84,7 @@ fn main() -> Fallible<()> {
         let tx = tx.clone();
         let rx = rx.clone();
         let next_password = next_base_password.clone();
+        let update_interval = opt.update_interval;
         let bar = indicatif::ProgressBar::new_spinner().with_message(format!("{i}"));
         bars.add(bar.clone());
         let mut zip_archive = ZipArchive::new(Cursor::new(file_vec.clone()))?;
@@ -95,7 +99,7 @@ fn main() -> Fallible<()> {
                 }
 
                 update_counter += 1;
-                if opt.update_interval < update_counter {
+                if update_interval < update_counter {
                     update_counter = 0;
                     bar.set_message(format!(
                         "{bytes} {password}",
@@ -148,7 +152,7 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn next_password_generator() -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
+fn next_password_generator(start_length: usize) -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
     fn inc_carry_up(start_index: usize, end_index: usize, password: &mut [u8]) -> (bool, bool) {
         for (index, entry) in password
             .iter_mut()
@@ -188,7 +192,13 @@ fn next_password_generator() -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
         None => {
             let mut pw = base_password.lock().unwrap();
             if pw.is_empty() {
-                pw.push(b' ');
+                if start_length == 0 {
+                    pw.push(b' ');
+                } else {
+                    for _ in 0..start_length {
+                        pw.push(b' ');
+                    }
+                }
             } else {
                 let (overflow, _) = inc_carry_up(pw.len() - 1, pw.len() - 1, &mut pw);
                 if overflow {
