@@ -19,7 +19,7 @@ use indicatif::HumanDuration;
 use rust_myscript::prelude::*;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use zip::result::ZipError;
@@ -27,7 +27,7 @@ use zip::ZipArchive;
 
 #[derive(Parser)]
 struct Opt {
-    #[clap(short, long, default_value = "2000")]
+    #[clap(short, long, default_value = "200000")]
     update_interval: usize,
 
     #[clap(short, long, default_value_t = num_cpus::get() + 1)]
@@ -46,7 +46,11 @@ fn main() -> Fallible<()> {
 
     let mut file_indexes = vec![];
 
-    let mut zip_archive = ZipArchive::new(BufReader::new(File::open(&opt.file)?))?;
+    let mut file_vec = vec![];
+    {
+        BufReader::new(File::open(&opt.file)?).read_to_end(&mut file_vec)?;
+    }
+    let mut zip_archive = ZipArchive::new(Cursor::new(&file_vec))?;
     for index in 0..zip_archive.len() {
         let entry = match zip_archive.by_index(index) {
             Ok(data) => data,
@@ -79,7 +83,7 @@ fn main() -> Fallible<()> {
         let next_password = next_base_password.clone();
         let bar = indicatif::ProgressBar::new_spinner().with_message(format!("{i}"));
         bars.add(bar.clone());
-        let mut zip_archive = ZipArchive::new(BufReader::new(File::open(&opt.file)?))?;
+        let mut zip_archive = ZipArchive::new(Cursor::new(file_vec.clone()))?;
         let t = std::thread::spawn(move || {
             let mut update_counter = 0usize;
             let mut password = next_password(None);
