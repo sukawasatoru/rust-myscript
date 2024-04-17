@@ -57,7 +57,7 @@ fn main() -> Fallible<()> {
     {
         BufReader::new(File::open(&opt.file)?).read_to_end(&mut file_vec)?;
     }
-    let mut zip_archive = ZipArchive::new(Cursor::new(&file_vec))?;
+    let mut zip_archive = ZipArchive::new(Cursor::new(file_vec))?;
     for index in 0..zip_archive.len() {
         let entry = match zip_archive.by_index(index) {
             Ok(data) => data,
@@ -93,7 +93,7 @@ fn main() -> Fallible<()> {
         let update_interval = opt.update_interval;
         let bar = indicatif::ProgressBar::new_spinner().with_message(format!("{i}"));
         bars.add(bar.clone());
-        let mut zip_archive = ZipArchive::new(Cursor::new(file_vec.clone()))?;
+        let mut zip_archive = zip_archive.clone();
         let t = std::thread::spawn(move || {
             let mut update_counter = 0usize;
             let mut password = next_password(None);
@@ -215,10 +215,8 @@ fn next_password_generator(start_bytes: Vec<u8>) -> impl Fn(Option<Vec<u8>>) -> 
         None => {
             let mut pw = base_password.lock().unwrap();
             if pw.is_empty() {
-                let mut new_base = start_bytes.to_owned();
-                for i in 0..new_base.len() - 1 {
-                    new_base[i] = b' ';
-                }
+                let mut new_base = vec![b' '; start_bytes.len()];
+                new_base[start_bytes.len() - 1] = start_bytes[start_bytes.len() - 1];
                 std::mem::swap(&mut new_base, &mut pw);
                 start_bytes.to_owned()
             } else {
