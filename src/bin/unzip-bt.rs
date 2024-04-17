@@ -27,19 +27,23 @@ use zip::ZipArchive;
 
 #[derive(Parser)]
 struct Opt {
-    #[clap(short, long, default_value = "200000")]
+    #[arg(short, long, default_value = "200000")]
     update_interval: usize,
 
-    #[clap(short, long, default_value_t = num_cpus::get() + 1)]
+    #[arg(short, long, default_value_t = num_cpus::get() + 1)]
     threads: usize,
 
-    #[clap(short, long, default_value = "0")]
-    start_length: usize,
+    /// e.g. `032, 033`
+    #[arg(short, long, value_parser = parse_start_bytes)]
+    start_bytes: Option<Password>,
 
     /// Zip file.
     #[clap(value_hint = ValueHint::FilePath)]
     file: PathBuf,
 }
+
+#[derive(Clone)]
+struct Password(Vec<u8>);
 
 fn main() -> Fallible<()> {
     let opt = Opt::parse();
@@ -71,7 +75,9 @@ fn main() -> Fallible<()> {
     }
 
     let (tx, rx) = tokio::sync::watch::channel(false);
-    let next_base_password = Arc::new(next_password_generator(opt.start_length));
+    let next_base_password = Arc::new(next_password_generator(
+        opt.start_bytes.unwrap_or(Password(vec![b' '])).0,
+    ));
 
     let start_time = std::time::Instant::now();
     let bars = indicatif::MultiProgress::new();
@@ -94,7 +100,15 @@ fn main() -> Fallible<()> {
             let mut buf = vec![];
             loop {
                 if rx.has_changed().unwrap_or(true) {
-                    bar.finish();
+                    bar.abandon_with_message(format!(
+                        "{bytes} {password} abort",
+                        bytes = password
+                            .iter()
+                            .map(|data| format!("{:03}", data))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        password = String::from_utf8_lossy(&password),
+                    ));
                     break;
                 }
 
@@ -132,7 +146,16 @@ fn main() -> Fallible<()> {
                     }
                     Ok(Err(_)) => {}
                     Err(e) => {
-                        bar.abandon_with_message(format!("{:?}", e));
+                        bar.abandon_with_message(format!(
+                            "{bytes} {password} abort {err:?}",
+                            bytes = password
+                                .iter()
+                                .map(|data| format!("{:03}", data))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            password = String::from_utf8_lossy(&password),
+                            err = e,
+                        ));
                         tx.send(true).ok();
                         break;
                     }
@@ -152,7 +175,7 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn next_password_generator(start_length: usize) -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
+fn next_password_generator(start_bytes: Vec<u8>) -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
     fn inc_carry_up(start_index: usize, end_index: usize, password: &mut [u8]) -> (bool, bool) {
         for (index, entry) in password
             .iter_mut()
@@ -192,22 +215,44 @@ fn next_password_generator(start_length: usize) -> impl Fn(Option<Vec<u8>>) -> V
         None => {
             let mut pw = base_password.lock().unwrap();
             if pw.is_empty() {
-                if start_length == 0 {
-                    pw.push(b' ');
-                } else {
-                    for _ in 0..start_length {
-                        pw.push(b' ');
-                    }
+                let mut new_base = start_bytes.to_owned();
+                for i in 0..new_base.len() - 1 {
+                    new_base[i] = b' ';
                 }
+                std::mem::swap(&mut new_base, &mut pw);
+                start_bytes.to_owned()
             } else {
                 let (overflow, _) = inc_carry_up(pw.len() - 1, pw.len() - 1, &mut pw);
                 if overflow {
                     pw.push(b' ');
                 }
+                pw.clone()
             }
-            pw.clone()
         }
     }
+}
+
+fn parse_start_bytes(value: &str) -> Result<Password, <u8 as std::str::FromStr>::Err> {
+    let value = value
+        .split(',')
+        .map(|data| {
+            data.chars()
+                .fold(
+                    (String::new(), false),
+                    |(mut acc, trimmed), data| match data {
+                        '0' if !trimmed => (acc, false),
+                        ' ' => (acc, trimmed),
+                        _ => {
+                            acc.push(data);
+                            (acc, true)
+                        }
+                    },
+                )
+                .0
+                .parse::<u8>()
+        })
+        .collect::<Result<Vec<u8>, _>>()?;
+    Ok(Password(value))
 }
 
 #[cfg(test)]
@@ -222,7 +267,7 @@ mod tests {
 
     #[test]
     fn next_password_generator_0() {
-        let gen = next_password_generator(0);
+        let gen = next_password_generator(vec![b' ']);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
@@ -238,25 +283,33 @@ mod tests {
     }
 
     #[test]
-    fn next_password_generator_1() {
-        let gen = next_password_generator(1);
-        let ascii_list = ascii_list();
-
-        for value in ascii_list.clone() {
-            assert_eq!(gen(None), vec![value]);
-        }
-        assert_eq!(gen(None), vec![ascii_list[0], ascii_list[0]]);
-    }
-
-    #[test]
     fn next_password_generator_2() {
-        let gen = next_password_generator(2);
+        let gen = next_password_generator(vec![b' ', b' ']);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
             assert_eq!(gen(None), vec![b' ', value]);
         }
         assert_eq!(gen(None), vec![ascii_list[0], ascii_list[0], ascii_list[0]]);
+    }
+
+    #[test]
+    fn next_password_generator_6() {
+        let gen = next_password_generator(vec![110, 033, 047, 096, 109, 067]);
+        let ascii_list = ascii_list();
+
+        assert_eq!(gen(None), vec![110, 033, 047, 096, 109, 067]);
+        assert_eq!(
+            gen(None),
+            vec![
+                ascii_list[0],
+                ascii_list[0],
+                ascii_list[0],
+                ascii_list[0],
+                ascii_list[0],
+                068
+            ]
+        );
     }
 
     fn ascii_list() -> Vec<u8> {
@@ -269,5 +322,22 @@ mod tests {
             b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's',
             b't', b'u', b'v', b'w', b'x', b'y', b'z', b'{', b'|', b'}', b'~',
         ]
+    }
+
+    #[test]
+    fn test_parse_start_bytes() {
+        assert_eq!(parse_start_bytes("032").unwrap().0, vec![32u8]);
+        assert_eq!(parse_start_bytes("032, 255").unwrap().0, vec![32u8, 255]);
+    }
+
+    #[test]
+    fn start_bytes_clap() {
+        assert_eq!(
+            Opt::parse_from(["cmd", r#"--start-bytes=032, 033"#, "path/to/zip"])
+                .start_bytes
+                .unwrap()
+                .0,
+            vec![32, 33],
+        );
     }
 }
