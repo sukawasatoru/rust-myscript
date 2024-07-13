@@ -37,6 +37,9 @@ struct Opt {
     #[arg(short, long, value_parser = parse_start_bytes)]
     start_bytes: Option<Password>,
 
+    #[arg(long)]
+    number: bool,
+
     /// Zip file.
     #[clap(value_hint = ValueHint::FilePath)]
     file: PathBuf,
@@ -77,6 +80,7 @@ fn main() -> Fallible<()> {
     let (tx, rx) = tokio::sync::watch::channel(false);
     let next_base_password = Arc::new(next_password_generator(
         opt.start_bytes.unwrap_or(Password(vec![b' '])).0,
+        opt.number,
     ));
 
     let start_time = std::time::Instant::now();
@@ -175,16 +179,25 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn next_password_generator(start_bytes: Vec<u8>) -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
-    fn inc_carry_up(start_index: usize, end_index: usize, password: &mut [u8]) -> (bool, bool) {
+fn next_password_generator(
+    start_bytes: Vec<u8>,
+    number: bool,
+) -> impl Fn(Option<Vec<u8>>) -> Vec<u8> {
+    fn inc_carry_up(
+        start_index: usize,
+        end_index: usize,
+        password: &mut [u8],
+        range_start_byte: u8,
+        range_end_byte: u8,
+    ) -> (bool, bool) {
         for (index, entry) in password
             .iter_mut()
             .enumerate()
             .take(end_index + 1)
             .skip(start_index)
         {
-            if entry == &b'~' {
-                *entry = b' ';
+            if entry == &range_end_byte {
+                *entry = range_start_byte;
                 if index == end_index {
                     return (true, true);
                 }
@@ -196,16 +209,32 @@ fn next_password_generator(start_bytes: Vec<u8>) -> impl Fn(Option<Vec<u8>>) -> 
         (false, true)
     }
 
+    let (range_start_byte, range_end_byte) = match number {
+        true => (b'0', b'9'),
+        false => (b' ', b'~'),
+    };
     let base_password = Mutex::new(vec![]);
     move |password: Option<Vec<u8>>| match password {
         Some(mut password) => {
-            let ret = inc_carry_up(0, password.len() - 1, &mut password);
+            let ret = inc_carry_up(
+                0,
+                password.len() - 1,
+                &mut password,
+                range_start_byte,
+                range_end_byte,
+            );
             match ret {
                 (true, _) | (_, true) => {
                     let mut pw = base_password.lock().unwrap();
-                    let (overflow, _) = inc_carry_up(pw.len() - 1, pw.len() - 1, &mut pw);
+                    let (overflow, _) = inc_carry_up(
+                        pw.len() - 1,
+                        pw.len() - 1,
+                        &mut pw,
+                        range_start_byte,
+                        range_end_byte,
+                    );
                     if overflow {
-                        pw.push(b' ');
+                        pw.push(range_start_byte);
                     }
                     pw.clone()
                 }
@@ -215,14 +244,20 @@ fn next_password_generator(start_bytes: Vec<u8>) -> impl Fn(Option<Vec<u8>>) -> 
         None => {
             let mut pw = base_password.lock().unwrap();
             if pw.is_empty() {
-                let mut new_base = vec![b' '; start_bytes.len()];
+                let mut new_base = vec![range_start_byte; start_bytes.len()];
                 new_base[start_bytes.len() - 1] = start_bytes[start_bytes.len() - 1];
                 std::mem::swap(&mut new_base, &mut pw);
                 start_bytes.to_owned()
             } else {
-                let (overflow, _) = inc_carry_up(pw.len() - 1, pw.len() - 1, &mut pw);
+                let (overflow, _) = inc_carry_up(
+                    pw.len() - 1,
+                    pw.len() - 1,
+                    &mut pw,
+                    range_start_byte,
+                    range_end_byte,
+                );
                 if overflow {
-                    pw.push(b' ');
+                    pw.push(range_start_byte);
                 }
                 pw.clone()
             }
@@ -265,7 +300,7 @@ mod tests {
 
     #[test]
     fn next_password_generator_0() {
-        let gen = next_password_generator(vec![b' ']);
+        let gen = next_password_generator(vec![b' '], false);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
@@ -282,7 +317,7 @@ mod tests {
 
     #[test]
     fn next_password_generator_2() {
-        let gen = next_password_generator(vec![b' ', b' ']);
+        let gen = next_password_generator(vec![b' ', b' '], false);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
@@ -293,7 +328,7 @@ mod tests {
 
     #[test]
     fn next_password_generator_6() {
-        let gen = next_password_generator(vec![110, 033, 047, 096, 109, 067]);
+        let gen = next_password_generator(vec![110, 033, 047, 096, 109, 067], false);
         let ascii_list = ascii_list();
 
         assert_eq!(gen(None), vec![110, 033, 047, 096, 109, 067]);
