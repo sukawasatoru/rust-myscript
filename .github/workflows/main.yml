@@ -17,22 +17,24 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      env:
-        IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
-      run: cargo build --release
-    - name: Tests
-      run: cargo test
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        env:
+          IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
+        run: cargo build --release
+      - name: Tests
+        run: cargo test
   rustfmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - run: rustup component add rustfmt
       - run: cargo -v fmt -- --check
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - run: rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy
