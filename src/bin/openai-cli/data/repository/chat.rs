@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2024 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,12 +41,14 @@ pub trait GetChatRepository {
 pub trait ChatRepository {
     fn find_chat_all(&self) -> Fallible<Vec<(Chat, Vec<Message>)>>;
 
+    #[allow(dead_code)]
     fn find_chat(&self, id: &ChatID) -> Fallible<Option<(Chat, Vec<Message>)>>;
 
     fn save_chat(&self, chat: &Chat) -> Fallible<()>;
 
     fn save_messages(&self, chat_id: &ChatID, messages: &[Message]) -> Fallible<()>;
 
+    #[allow(dead_code)]
     fn delete_messages(&self, message_ids: &[MessageID]) -> Fallible<usize>;
 }
 

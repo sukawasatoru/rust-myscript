@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2024 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,9 +35,9 @@ impl<'se> serde::ser::SerializeSeq for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_element<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -51,9 +51,9 @@ impl<'se> serde::ser::SerializeTuple for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_element<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -67,16 +67,16 @@ impl<'se> serde::ser::SerializeMap for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_key<T: ?Sized>(&mut self, _key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -90,9 +90,9 @@ impl<'se> serde::ser::SerializeTupleStruct for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -106,9 +106,9 @@ impl<'se> serde::ser::SerializeTupleVariant for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -122,13 +122,9 @@ impl<'se> serde::ser::SerializeStruct for &'se mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        _key: &'static str,
-        _value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, _key: &'static str, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -142,13 +138,9 @@ impl<'se> serde::ser::SerializeStructVariant for &'se mut StringValueSerializer 
     type Ok = ();
     type Error = StringValueSerializerError;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        _key: &'static str,
-        _value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, _key: &'static str, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -229,9 +221,9 @@ impl<'se> Serializer for &'se mut StringValueSerializer {
         todo!()
     }
 
-    fn serialize_some<T: ?Sized>(self, _value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
@@ -254,18 +246,18 @@ impl<'se> Serializer for &'se mut StringValueSerializer {
         Ok(())
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T>(
         self,
         _name: &'static str,
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -273,7 +265,7 @@ impl<'se> Serializer for &'se mut StringValueSerializer {
         _value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         todo!()
     }
