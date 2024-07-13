@@ -132,7 +132,7 @@ fn main() -> Fallible<()> {
                 }
 
                 match zip_archive.by_index_decrypt(index, &password) {
-                    Ok(Ok(mut entry)) => {
+                    Ok(mut entry) => {
                         buf.clear();
                         if entry.read_to_end(&mut buf).is_ok() {
                             bar.finish_with_message(format!(
@@ -148,7 +148,6 @@ fn main() -> Fallible<()> {
                             break;
                         }
                     }
-                    Ok(Err(_)) => {}
                     Err(e) => {
                         bar.abandon_with_message(format!(
                             "{bytes} {password} abort {err:?}",
