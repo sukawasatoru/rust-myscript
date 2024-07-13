@@ -6,6 +6,8 @@ on:
   pull_request:
     branches:
       - master
+env:
+  CARGO_TERM_COLOR: always
 jobs:
   build:
     strategy:
@@ -16,6 +18,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -27,12 +30,14 @@ jobs:
         run: cargo test
   rustfmt:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add rustfmt
       - run: cargo -v fmt -- --check
   clippy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add clippy
