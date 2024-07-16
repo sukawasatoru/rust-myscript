@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 use clap::Parser;
-use crossterm::event::{KeyModifiers, MouseEventKind};
 use directories::ProjectDirs;
 use ratatui::crossterm::event::{
-    poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode,
+    poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers,
+    MouseEventKind,
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
@@ -404,7 +404,7 @@ impl<'a> SelectFilesApp<'a> {
             Paragraph::new(Line::from(vec![
                 Span::styled(" ⎋  ", Style::new().add_modifier(Modifier::REVERSED)),
                 Span::from(" Clear-text  "),
-                Span::styled(" ⌃C/Q ", Style::new().add_modifier(Modifier::REVERSED)),
+                Span::styled(" ⌃C ", Style::new().add_modifier(Modifier::REVERSED)),
                 Span::from(" Quit  "),
                 Span::styled(" ↑/^P ", Style::new().add_modifier(Modifier::REVERSED)),
                 Span::from(" Up  "),
