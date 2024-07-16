@@ -28,7 +28,7 @@ use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListSta
 use rust_myscript::prelude::*;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{stderr, BufReader};
+use std::io::{stderr, BufReader, BufWriter};
 use std::ops::{Deref, DerefMut};
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -44,7 +44,7 @@ struct Opt {
     #[clap(short, long)]
     template_names: Vec<String>,
 
-    /// [WIP] Output a gitignore to a specified path instead of the stdout.
+    /// Output a gitignore to a specified path instead of the stdout.
     #[clap(short, long)]
     output: Option<PathBuf>,
 }
@@ -59,7 +59,7 @@ fn main() -> Fallible<()> {
 
     info!("hello");
 
-    let _opt = Opt::parse();
+    let opt = Opt::parse();
 
     check_git()?;
 
@@ -88,18 +88,32 @@ fn main() -> Fallible<()> {
         .collect::<Vec<_>>();
 
     if !selected_files.is_empty() {
-        writeln!(
-            std::io::stdout(),
-            "# Generate: {}",
-            selected_files.join(", ")
-        )?;
+        fn write_gitignore(
+            mut writer: impl Write,
+            repo_dir: &Path,
+            selected_files: &[&str],
+        ) -> Fallible<()> {
+            writeln!(writer, "# Generate: {}", selected_files.join(", "))?;
 
-        for entry in selected_files {
-            writeln!(std::io::stdout(), "\n# {}", entry)?;
+            for entry in selected_files {
+                writeln!(writer, "\n# {}", entry)?;
 
-            let mut reader = BufReader::new(File::open(repo_dir.join(entry))?);
+                let mut reader = BufReader::new(File::open(repo_dir.join(entry))?);
 
-            std::io::copy(&mut reader, &mut std::io::stdout())?;
+                std::io::copy(&mut reader, &mut writer)?;
+            }
+
+            Ok(())
+        }
+
+        if let Some(output_path) = opt.output {
+            write_gitignore(
+                BufWriter::new(File::create(output_path)?),
+                &repo_dir,
+                selected_files.as_slice(),
+            )?;
+        } else {
+            write_gitignore(std::io::stdout(), &repo_dir, selected_files.as_slice())?;
         }
     }
 
