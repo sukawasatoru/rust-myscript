@@ -38,9 +38,9 @@ use tracing::instrument;
 use tracing_appender::non_blocking::WorkerGuard;
 
 /// Create gitignore based on `https://github.com/github/gitignore`.
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 struct Opt {
-    /// [WIP] Create a gitignore file with specified template names.
+    /// Create a gitignore file with specified template names.
     #[clap(short, long)]
     template_names: Vec<String>,
 
@@ -60,6 +60,8 @@ fn main() -> Fallible<()> {
     info!("hello");
 
     let opt = Opt::parse();
+
+    debug!(?opt);
 
     check_git()?;
 
@@ -81,7 +83,7 @@ fn main() -> Fallible<()> {
 
     let files = git_list_gitignore(&repo_dir)?;
 
-    let selected_files = SelectFilesApp::new(&files)
+    let selected_files = SelectFilesApp::new(&files, opt.template_names.as_slice())
         .run()?
         .iter()
         .map(|index| files[*index].as_str())
@@ -272,14 +274,18 @@ struct SelectFilesApp<'a> {
 }
 
 impl<'a> SelectFilesApp<'a> {
-    fn new(files: &'a [String]) -> Self {
+    fn new(files: &'a [String], template_names: &[String]) -> Self {
         let mut files_layout_state = ListState::default();
         files_layout_state.select_first();
         Self {
             files: files
                 .iter()
                 .map(|name| FileEntry {
-                    checked: false,
+                    checked: template_names.iter().any(|data| {
+                        let name = name.to_lowercase();
+                        let data = data.to_lowercase();
+                        name == data || name.trim_end_matches(".gitignore") == data
+                    }),
                     name,
                 })
                 .collect(),
