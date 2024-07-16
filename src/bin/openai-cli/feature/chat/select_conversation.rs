@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2024 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,22 +16,20 @@
 
 use crate::model::{Chat, ChatID, Message, MessageRole};
 use chrono::{DateTime, Local, Offset, TimeZone};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers};
-use crossterm::terminal::{
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers,
+};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use crossterm::{event, execute};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use rust_myscript::prelude::*;
 use std::fmt::Display;
 use std::io;
 use std::io::prelude::*;
 use tracing::instrument;
-use tui::backend::{Backend, CrosstermBackend};
-use tui::layout::{Constraint, Direction, Layout};
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans, Text};
-use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
-use tui::{Frame, Terminal};
 
 pub enum SelectedType {
     New,
@@ -189,10 +187,8 @@ impl<B: Backend + Write> Drop for SelectConversationTerminal<B> {
     }
 }
 
-fn conversation_view<B: Backend, Tz, OFFSET>(
-    f: &mut Frame<B>,
-    state: &mut ConversationViewState<Tz, OFFSET>,
-) where
+fn conversation_view<Tz, OFFSET>(f: &mut Frame, state: &mut ConversationViewState<Tz, OFFSET>)
+where
     Tz: TimeZone<Offset = OFFSET>,
     OFFSET: Offset + Display,
 {
@@ -203,12 +199,12 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
             .map(|item| match item {
                 ConversationType::New => ListItem::new(Text::from("Start new conversation\n\n\n")),
                 ConversationType::Continue(item) => ListItem::new(vec![
-                    Spans::from(Span::from(item.title.as_str())),
-                    Spans::from(vec![
+                    Line::from(item.title.as_str()),
+                    Line::from(vec![
                         Span::from("  created: "),
                         Span::from(item.created_at.to_rfc3339()),
                     ]),
-                    Spans::from(vec![
+                    Line::from(vec![
                         Span::from("  updated: "),
                         Span::from(item.updated_at.to_rfc3339()),
                     ]),
@@ -238,7 +234,7 @@ fn conversation_view<B: Backend, Tz, OFFSET>(
             .messages
             .iter()
             .map(|data| {
-                ListItem::new(Spans::from(match data.role {
+                ListItem::new(Line::from(match data.role {
                     MessageRole::System => {
                         vec![
                             Span::styled(
