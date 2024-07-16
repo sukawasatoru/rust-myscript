@@ -187,8 +187,6 @@ fn request_message(
         .post("https://api.openai.com/v1/chat/completions")
         .json(&ChatCompletionRequest {
             messages,
-            max_tokens: Some(1000),
-            n: Some(1),
             model,
             ..Default::default()
         })
