@@ -378,20 +378,35 @@ struct ChatCompletionRequest<'a> {
 }
 
 /// ref. [ChatCompletionRequest]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 enum ChatCompletionModel {
     #[serde(rename = "gpt-3.5-turbo")]
+    #[allow(dead_code)]
     GPT35Turbo,
 
     #[serde(rename = "gpt-3.5-turbo-16k")]
     #[allow(dead_code)]
     GPT35Turbo16k,
 
+    #[serde(rename = "gpt-4")]
+    #[allow(dead_code)]
+    GPT4,
+
+    #[serde(rename = "gpt-4-turbo")]
+    #[allow(dead_code)]
+    GPT4Turbo,
+
+    #[serde(rename = "gpt-4o")]
+    #[default]
+    #[allow(dead_code)]
+    GPT4o,
+
+    /// for compatibility for old db https://platform.openai.com/docs/deprecations/
     #[serde(rename = "gpt-3.5-turbo-0301")]
     #[allow(dead_code)]
-    #[deprecated = "discontinuation date: 2023-09-13 https://platform.openai.com/docs/deprecations/"]
     GPT35Turbo0301,
 
+    /// for compatibility for old db https://platform.openai.com/docs/deprecations/
     #[serde(rename = "gpt-3.5-turbo-0613")]
     #[allow(dead_code)]
     GPT35Turbo0613,
@@ -404,17 +419,13 @@ impl FromStr for ChatCompletionModel {
         match s {
             "gpt-3.5-turbo" => Ok(Self::GPT35Turbo),
             "gpt-3.5-turbo-16k" => Ok(Self::GPT35Turbo16k),
-            #[allow(deprecated)]
             "gpt-3.5-turbo-0301" => Ok(Self::GPT35Turbo0301),
             "gpt-3.5-turbo-0613" => Ok(Self::GPT35Turbo0613),
+            "gpt-4" => Ok(Self::GPT4),
+            "gpt-4-turbo" => Ok(Self::GPT4Turbo),
+            "gpt-4o" => Ok(Self::GPT4o),
             _ => bail!("unexpected str: {}", s),
         }
-    }
-}
-
-impl Default for ChatCompletionModel {
-    fn default() -> Self {
-        Self::GPT35Turbo
     }
 }
 
@@ -477,14 +488,24 @@ mod tests {
 
         let _ = match GPT35Turbo {
             GPT35Turbo => (),
-            #[allow(deprecated)]
             GPT35Turbo0301 => (),
             GPT35Turbo16k => {}
             GPT35Turbo0613 => {}
+            GPT4 => {}
+            GPT4Turbo => {}
+            GPT4o => {}
         };
 
         #[allow(deprecated)]
-        for entry in [GPT35Turbo, GPT35Turbo0301, GPT35Turbo16k, GPT35Turbo0613] {
+        for entry in [
+            GPT35Turbo,
+            GPT35Turbo0301,
+            GPT35Turbo16k,
+            GPT35Turbo0613,
+            GPT4,
+            GPT4Turbo,
+            GPT4o,
+        ] {
             let serialized = get_serialized_string(&entry).unwrap();
             assert_eq!(entry, serialized.parse::<ChatCompletionModel>().unwrap());
         }
