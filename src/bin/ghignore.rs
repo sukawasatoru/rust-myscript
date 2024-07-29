@@ -33,7 +33,7 @@ use std::ops::{Deref, DerefMut};
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::instrument;
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -307,10 +307,9 @@ impl<'a> SelectFilesApp<'a> {
         )?;
 
         fn restore_ui() {
-            static IS_RESTORED: OnceLock<AtomicBool> = OnceLock::new();
-            let is_restored = IS_RESTORED.get_or_init(|| AtomicBool::new(false));
+            static IS_RESTORED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 
-            if !is_restored.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            if !IS_RESTORED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 debug!("restore ui");
                 if let Err(e) = execute!(
                     stderr(),

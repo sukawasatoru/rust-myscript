@@ -171,7 +171,7 @@ fn check_terminal_notifier(executable_name: &str) -> bool {
 
 fn notify_terminal(context: &Context, ps_info: &PSInfo) -> anyhow::Result<()> {
     std::process::Command::new(&context.terminal_notifier_name)
-        .args(&vec![
+        .args(vec![
             "-message",
             &format!("Battery: {}", ps_info.battery_level),
         ])

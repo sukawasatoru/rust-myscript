@@ -30,7 +30,7 @@ use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::thread::JoinHandle;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::{INTEGER, TEXT};
@@ -683,12 +683,11 @@ impl<Cache: CratesCache, TP: TimestampProvider> CratesIOClient<Cache, TP> {
                 .and_then(|data| data.parse::<u32>().ok())
                 .unwrap_or(0);
 
-            static REG_MAX_AGE: OnceLock<Regex> = OnceLock::new();
-            let reg = REG_MAX_AGE.get_or_init(init_reg_max_age);
+            static REG_MAX_AGE: LazyLock<Regex> = LazyLock::new(init_reg_max_age);
             res.headers()
                 .get(reqwest::header::CACHE_CONTROL)
                 .and_then(|data| data.to_str().ok())
-                .and_then(|data| reg.captures(data))
+                .and_then(|data| REG_MAX_AGE.captures(data))
                 .and_then(|data| data.get(1))
                 .and_then(|data| data.as_str().parse::<u32>().ok())
                 .map(|max_age| self.timestamp_provider.timestamp() + i64::from(max_age - age))

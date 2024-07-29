@@ -70,7 +70,7 @@ fn main() {
         .current_dir(target.parent().unwrap())
         .arg("commit")
         .arg("-m")
-        .arg(&config.message.unwrap_or_else(|| "update".to_string()))
+        .arg(config.message.unwrap_or_else(|| "update".to_string()))
         .spawn()
         .expect("failed to commit")
         .wait_with_output()
