@@ -60,7 +60,7 @@ struct Opt {
     completion: Option<clap_complete::Shell>,
 
     /// A 'Cargo.toml' to check crate.
-    #[clap(value_hint = ValueHint::FilePath, required_unless_present = "completion")]
+    #[arg(value_hint = ValueHint::FilePath, required_unless_present = "completion")]
     cargo_file: Option<PathBuf>,
 }
 

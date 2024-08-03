@@ -22,7 +22,7 @@ use url::Url;
 #[derive(Parser)]
 struct Opt {
     /// Amazon URL.
-    #[clap(value_hint = ValueHint::Url)]
+    #[arg(value_hint = ValueHint::Url)]
     input: Url,
 }
 

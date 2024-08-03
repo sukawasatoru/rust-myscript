@@ -41,7 +41,7 @@ struct Opt {
     number: bool,
 
     /// Zip file.
-    #[clap(value_hint = ValueHint::FilePath)]
+    #[arg(value_hint = ValueHint::FilePath)]
     file: PathBuf,
 }
 

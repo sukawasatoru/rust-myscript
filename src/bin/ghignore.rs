@@ -41,11 +41,11 @@ use tracing_appender::non_blocking::WorkerGuard;
 #[derive(Debug, Parser)]
 struct Opt {
     /// Create a gitignore file with specified template names.
-    #[clap(short, long)]
+    #[arg(short, long)]
     template_names: Vec<String>,
 
     /// Output a gitignore to a specified path instead of the stdout.
-    #[clap(short, long)]
+    #[arg(short, long)]
     output: Option<PathBuf>,
 }
 
