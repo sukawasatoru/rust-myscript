@@ -117,7 +117,9 @@ async fn main() -> Fallible<()> {
             Some(guard)
         }
         None => {
-            tracing_subscriber::fmt::init();
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .init();
             None
         }
     };

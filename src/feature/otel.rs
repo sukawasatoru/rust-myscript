@@ -55,7 +55,7 @@ pub fn init_otel(
                     .with_default(FmtSubscriber::DEFAULT_MAX_LEVEL)
             }
         })
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .with(OpenTelemetryTracingBridge::new(&logger_provider))
         .try_init()?;
 
