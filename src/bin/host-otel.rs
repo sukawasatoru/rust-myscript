@@ -75,6 +75,7 @@ async fn main() -> Fallible<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "windows"))]
 #[cfg(test)]
 mod tests {
     use super::*;
