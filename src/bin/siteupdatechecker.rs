@@ -18,6 +18,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use futures::future::BoxFuture;
 use reqwest::{header, StatusCode};
+use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_224};
@@ -91,23 +92,39 @@ struct Opt {
     /// Web hooks URL for slack
     #[arg(long, env)]
     slack_notify_url: String,
+
+    /// OpenTelemetry logs endpoint.
+    #[arg(long, env)]
+    otel_logs_endpoint: Option<Url>,
 }
 
 #[tokio::main]
 async fn main() -> Fallible<()> {
-    tracing_subscriber::fmt::init();
-
-    info!("hello");
-
     let opt: Opt = Opt::parse();
-
-    let mut site_prefs_string = String::new();
-    std::io::stdin().read_to_string(&mut site_prefs_string)?;
-    let site_prefs = toml::from_str::<SitePreferences>(&site_prefs_string)?;
 
     let client = reqwest::ClientBuilder::new()
         .user_agent("siteupdatechecker")
         .build()?;
+
+    let otel_guard = match opt.otel_logs_endpoint {
+        Some(endpoint) => {
+            let guard = init_otel(
+                client.clone(),
+                endpoint,
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_BIN_NAME"),
+            )?;
+            Some(guard)
+        }
+        None => {
+            tracing_subscriber::fmt::init();
+            None
+        }
+    };
+
+    let mut site_prefs_string = String::new();
+    std::io::stdin().read_to_string(&mut site_prefs_string)?;
+    let site_prefs = toml::from_str::<SitePreferences>(&site_prefs_string)?;
 
     let mut futs = Vec::<BoxFuture<Result<CheckOk, CheckError>>>::new();
     for site in site_prefs.sites {
@@ -147,32 +164,56 @@ async fn main() -> Fallible<()> {
         }
     }
 
+    let mut otel_log_body = String::new();
+
     println!("# updated:");
+    otel_log_body.push_str("updated:\n");
     if updated_sites.is_empty() {
         println!("#   (none)");
+        otel_log_body.push_str("  (none)\n");
     } else {
         for site in updated_sites.iter() {
             println!("#   {}", site.title);
+            otel_log_body.push_str("  ");
+            otel_log_body.push_str(&site.title);
+            otel_log_body.push_str("\n    ");
+            otel_log_body.push_str(site.uri_open.as_ref().unwrap_or(&site.uri).as_str());
+            otel_log_body.push('\n');
         }
     }
 
     println!("#");
     println!("# not modified:");
+    otel_log_body.push_str("not modified:\n");
     if not_modified_sites.is_empty() {
         println!("#   (none)");
+        otel_log_body.push_str("  (none)\n");
     } else {
         for site in not_modified_sites.iter() {
             println!("#   {}", site.title);
+            otel_log_body.push_str("  ");
+            otel_log_body.push_str(&site.title);
+            otel_log_body.push('\n');
         }
     }
 
     println!("#");
     println!("# error:");
+    otel_log_body.push_str("error:\n");
     if error_sites.is_empty() {
         println!("#   (none)");
+        otel_log_body.push_str("  (none)\n");
     } else {
         for (site, e) in error_sites.iter() {
             println!("#   {}\n#     reason: {}", site.title, &e);
+            otel_log_body.push_str("  ");
+            otel_log_body.push_str(&site.title);
+            otel_log_body.push_str("\n    ");
+            otel_log_body.push_str(site.uri_open.as_ref().unwrap_or(&site.uri).as_str());
+            otel_log_body.push('\n');
+            otel_log_body.push_str("    reason: ");
+            otel_log_body.push_str(&e.to_string());
+            otel_log_body.push('\n');
         }
     }
 
@@ -200,7 +241,14 @@ async fn main() -> Fallible<()> {
         info!(ret_slack_response_text);
     }
 
-    info!("bye");
+    if otel_guard.is_some() {
+        info!(
+            event.name = "device.app.result",
+            has_update = %!updated_sites.is_empty(),
+            "{}",
+            otel_log_body,
+        );
+    }
 
     Ok(())
 }
