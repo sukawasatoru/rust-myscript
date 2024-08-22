@@ -614,7 +614,7 @@ mod tests {
         let mut local_file_data_source = MockLocalFileDataSource::default();
         local_file_data_source
             .expect_get_file_size()
-            .with(eq(Path::new("/test-target/test-repo-name/ff/66/ff664e5803ae941f7b490e4affc4be0a8ba8b8954608f31f5e29bcdce840f5cb")))
+            .withf(|lhs| lhs.display().to_string().replace('\\',"/") == "/test-target/test-repo-name/ff/66/ff664e5803ae941f7b490e4affc4be0a8ba8b8954608f31f5e29bcdce840f5cb")
             .return_const(80);
 
         let mut out = vec![];
