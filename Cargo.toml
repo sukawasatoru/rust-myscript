@@ -63,3 +63,6 @@ url = { version = "2.5.2", features = ["serde"] }
 uuid = { version = "=1.10.0", features = ["v4"] }
 warp = { version = "=0.3.7", features = ["tls"] }
 zip = "=2.1.6"
+
+[dev-dependencies]
+mockall = "=0.13.0"
