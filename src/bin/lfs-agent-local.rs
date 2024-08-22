@@ -425,7 +425,11 @@ fn transfer_download<Ctx: GetLocalFileDataSource, W: Write>(
         Some(storage_file_size) if storage_file_size == size => {
             let res = serde_json::to_string(&ProtocolResponse::DownloadComplete {
                 oid,
-                path: source_pathname,
+                path: if cfg!(target_os = "windows") {
+                    PathBuf::from(source_pathname.display().to_string().replace(r"\\", "/"))
+                } else {
+                    source_pathname
+                },
             })?;
             writeln!(result_writer, "{res}")?;
         }
@@ -614,7 +618,7 @@ mod tests {
         let mut local_file_data_source = MockLocalFileDataSource::default();
         local_file_data_source
             .expect_get_file_size()
-            .withf(|lhs| lhs.display().to_string().replace('\\',"/") == "/test-target/test-repo-name/ff/66/ff664e5803ae941f7b490e4affc4be0a8ba8b8954608f31f5e29bcdce840f5cb")
+            .with(eq(Path::new("/test-target/test-repo-name/ff/66/ff664e5803ae941f7b490e4affc4be0a8ba8b8954608f31f5e29bcdce840f5cb")))
             .return_const(80);
 
         let mut out = vec![];
