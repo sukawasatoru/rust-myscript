@@ -426,7 +426,7 @@ fn transfer_download<Ctx: GetLocalFileDataSource, W: Write>(
             let res = serde_json::to_string(&ProtocolResponse::DownloadComplete {
                 oid,
                 path: if cfg!(target_os = "windows") {
-                    PathBuf::from(source_pathname.display().to_string().replace(r"\\", "/"))
+                    PathBuf::from(source_pathname.display().to_string().replace('\\', "/"))
                 } else {
                     source_pathname
                 },
