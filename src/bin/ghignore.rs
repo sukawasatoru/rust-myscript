@@ -390,7 +390,7 @@ impl<'a> SelectFilesApp<'a> {
                 Constraint::Length(3),
             ],
         )
-        .split(frame.size());
+        .split(frame.area());
         let help_layout = main_layout[0];
         let selected_file_layout = main_layout[1];
         let files_layout = main_layout[2];
