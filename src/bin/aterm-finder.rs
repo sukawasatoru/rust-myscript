@@ -256,7 +256,7 @@ async fn request_aterm(
 ) -> anyhow::Result<String> {
     trace!(ip = %target, from = ?form_data, "request");
     let response = client
-        .post(&format!(
+        .post(format!(
             "http://{target}/aterm_httpif.cgi/getparamcmd_no_auth"
         ))
         .form(&form_data)

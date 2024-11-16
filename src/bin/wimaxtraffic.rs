@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     let host = get_wimax_host(&config).expect("need host");
     let token = get_wx04_token(&config).expect("need WX04 token");
     let body = reqwest::Client::new()
-        .get(&format!("http://{host}/index.cgi/network_count_main"))
+        .get(format!("http://{host}/index.cgi/network_count_main"))
         .header(
             reqwest::header::AUTHORIZATION,
             reqwest::header::HeaderValue::from_str(&format!("Basic {token}"))?,

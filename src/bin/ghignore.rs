@@ -357,9 +357,8 @@ impl<'a> SelectFilesApp<'a> {
         let mut terminal = TearDown::new(Terminal::new(CrosstermBackend::new(stderr()))?);
         loop {
             terminal.draw(|frame| self.select_files_ui(frame))?;
-            match self.select_files_handle_events()? {
-                true => break,
-                false => (),
+            if self.select_files_handle_events()? {
+                break;
             }
         }
 
