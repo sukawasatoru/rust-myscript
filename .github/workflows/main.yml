@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add rustfmt
-      - run: apt install libsqlite3-dev
+      - run: sudo apt install libsqlite3-dev
       - run: cargo -v fmt -- --check
   clippy:
     runs-on: ubuntu-latest
@@ -43,5 +43,5 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup component add clippy
       - uses: Swatinem/rust-cache@v2
-      - run: apt install libsqlite3-dev
+      - run: sudo apt install libsqlite3-dev
       - run: cargo clippy
