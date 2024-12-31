@@ -559,7 +559,7 @@ impl FromSql for RepoDateTime {
 
 struct RepoDateTimeRef<'a>(&'a DateTime<Utc>);
 
-impl<'a> ToSql for RepoDateTimeRef<'a> {
+impl ToSql for RepoDateTimeRef<'_> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(self.0.timestamp_millis().into())
     }

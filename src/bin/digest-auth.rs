@@ -290,7 +290,7 @@ struct DigestQuery {
 
 struct HexFormat<'a>(&'a [u8]);
 
-impl<'a> std::fmt::Display for HexFormat<'a> {
+impl std::fmt::Display for HexFormat<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0.is_empty() {
             return Ok(());

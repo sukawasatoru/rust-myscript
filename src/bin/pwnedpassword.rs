@@ -66,7 +66,7 @@ enum CheckCommand {
 
 struct HexFormat<'a>(&'a [u8]);
 
-impl<'a> std::fmt::Display for HexFormat<'a> {
+impl std::fmt::Display for HexFormat<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for entry in self.0 {
             write!(f, "{entry:02X?}")?;

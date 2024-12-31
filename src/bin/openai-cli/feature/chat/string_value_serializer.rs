@@ -31,7 +31,7 @@ where
 
 struct StringValueSerializer(Option<String>);
 
-impl<'se> serde::ser::SerializeSeq for &'se mut StringValueSerializer {
+impl serde::ser::SerializeSeq for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -47,7 +47,7 @@ impl<'se> serde::ser::SerializeSeq for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeTuple for &'se mut StringValueSerializer {
+impl serde::ser::SerializeTuple for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -63,7 +63,7 @@ impl<'se> serde::ser::SerializeTuple for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeMap for &'se mut StringValueSerializer {
+impl serde::ser::SerializeMap for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -86,7 +86,7 @@ impl<'se> serde::ser::SerializeMap for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeTupleStruct for &'se mut StringValueSerializer {
+impl serde::ser::SerializeTupleStruct for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -102,7 +102,7 @@ impl<'se> serde::ser::SerializeTupleStruct for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeTupleVariant for &'se mut StringValueSerializer {
+impl serde::ser::SerializeTupleVariant for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -118,7 +118,7 @@ impl<'se> serde::ser::SerializeTupleVariant for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeStruct for &'se mut StringValueSerializer {
+impl serde::ser::SerializeStruct for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -134,7 +134,7 @@ impl<'se> serde::ser::SerializeStruct for &'se mut StringValueSerializer {
     }
 }
 
-impl<'se> serde::ser::SerializeStructVariant for &'se mut StringValueSerializer {
+impl serde::ser::SerializeStructVariant for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
 
@@ -150,7 +150,7 @@ impl<'se> serde::ser::SerializeStructVariant for &'se mut StringValueSerializer 
     }
 }
 
-impl<'se> Serializer for &'se mut StringValueSerializer {
+impl Serializer for &mut StringValueSerializer {
     type Ok = ();
     type Error = StringValueSerializerError;
     type SerializeSeq = Self;

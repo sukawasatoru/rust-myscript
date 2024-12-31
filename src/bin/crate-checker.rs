@@ -822,7 +822,7 @@ where
     D: Deserializer<'de>,
 {
     struct VersionString;
-    impl<'de> Visitor<'de> for VersionString {
+    impl Visitor<'_> for VersionString {
         type Value = semver::Version;
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {

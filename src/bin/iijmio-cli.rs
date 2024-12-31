@@ -393,7 +393,7 @@ where
     D: Deserializer<'de>,
 {
     struct NumberVisitor;
-    impl<'de> Visitor<'de> for NumberVisitor {
+    impl Visitor<'_> for NumberVisitor {
         type Value = i64;
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
