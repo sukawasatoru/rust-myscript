@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt install libsqlite3-dev
       - name: Build
         env:
           IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
