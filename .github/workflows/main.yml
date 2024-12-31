@@ -22,18 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Build
+      - if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get install libsqlite3-dev
+      - run: cargo build --release
         env:
           IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
-        run: cargo build --release
-      - name: Tests
-        run: cargo test
+      - run: cargo test
   rustfmt:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add rustfmt
+      - run: sudo apt-get install libsqlite3-dev
       - run: cargo -v fmt -- --check
   clippy:
     runs-on: ubuntu-latest
@@ -42,4 +43,5 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup component add clippy
       - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get install libsqlite3-dev
       - run: cargo clippy
