@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use base64::Engine;
 use clap::Parser;
 use hmac::{Hmac, Mac};
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 use rust_myscript::prelude::*;
 use sha1::Sha1;
 use std::collections::BTreeMap;
@@ -51,10 +51,7 @@ fn main() -> Fallible<()> {
     let mut query_map = BTreeMap::new();
     query_map.insert("id", opt.client_id);
     query_map.insert("otp", opt.otp);
-    query_map.insert(
-        "nonce",
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 40),
-    );
+    query_map.insert("nonce", Alphanumeric.sample_string(&mut rand::rng(), 40));
 
     let secret = opt.client_secret.map(Secret);
     if let Some(secret) = &secret {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023, 2024 sukawasatoru
+ * Copyright 2022, 2023, 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,7 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use chrono::{DateTime, Duration, Utc};
-use rand::distributions::{Alphanumeric, DistString};
-use rand::thread_rng;
+use rand::distr::{Alphanumeric, SampleString};
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::Client;
 use rust_myscript::prelude::*;
@@ -372,7 +371,7 @@ enum FragmentParams {
 }
 
 fn create_authn_state() -> String {
-    Alphanumeric.sample_string(&mut thread_rng(), 4)
+    Alphanumeric.sample_string(&mut rand::rng(), 4)
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]

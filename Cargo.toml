@@ -11,24 +11,24 @@ anyhow = "*"
 pkg-config = "=0.3.31"
 
 [dependencies]
-anyhow = "=1.0.93"
+anyhow = "=1.0.95"
 async-stream = "=0.3.6"
-axum = { version = "=0.7.8", features = ["macros"] }
+axum = { version = "=0.8.1", features = ["macros"] }
 base64 = "=0.22.1"
 blake2 = "=0.10.6"
-bytes = "=1.8.0"
-chrono = { version = "=0.4.38", features = ["serde"] }
-clap = { version = "=4.5.21", features = ["derive", "env"] }
-clap_complete = "=4.5.38"
+bytes = "=1.10.0"
+chrono = { version = "=0.4.39", features = ["serde"] }
+clap = { version = "=4.5.29", features = ["derive", "env"] }
+clap_complete = "=4.5.44"
 digest = "=0.10.7"
-directories = "=5.0.1"
+directories = "=6.0.0"
 dotenv = "=0.15.0"
 futures = "=0.3.31"
 hostname = "=0.4.0"
 hmac = "=0.12.1"
-indicatif = "=0.17.9"
-infer = "=0.16.0"
-libc = "=0.2.162"
+indicatif = "=0.17.11"
+infer = "=0.19.0"
+libc = "=0.2.169"
 md-5 = "=0.10.6"
 mime = "=0.3.17"
 num_cpus = "=1.16.0"
@@ -38,31 +38,31 @@ opentelemetry_sdk = { version = "=0.24.1", default-features = false, features = 
 opentelemetry-otlp = { version = "=0.17.0", default-features = false, features = ["http-proto", "logs", "reqwest-client"] }
 opentelemetry-appender-tracing = { version = "=0.5.0", default-features = false }
 opentelemetry-semantic-conventions = "=0.16.0"
-rand = "=0.8.5"
+rand = "=0.9.0"
 ratatui = "=0.29.0"
 regex = "=1.11.1"
-reqwest = { version = "=0.12.9", features = ["blocking", "json", "brotli", "gzip", "deflate"] }
-rusqlite = { version = "=0.32.1", features = ["bundled-windows"] }
-semver = { version = "=1.0.23", features = ["serde"] }
-serde = { version = "=1.0.215", features = ["derive", "rc"] }
-serde_json = "=1.0.132"
+reqwest = { version = "=0.12.12", features = ["blocking", "json", "brotli", "gzip", "deflate"] }
+rusqlite = { version = "=0.33.0", features = ["bundled-windows"] }
+semver = { version = "=1.0.25", features = ["serde"] }
+serde = { version = "=1.0.217", features = ["derive", "rc"] }
+serde_json = "=1.0.138"
 sha-1 = "=0.10.1"
 sha2 = "=0.10.8"
 sha3 = "=0.10.8"
 serde_urlencoded = "=0.7.1"
-strum = { version = "=0.26.3", features = ["derive"] }
+strum = { version = "=0.27.0", features = ["derive"] }
 tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag = "v0.3.2" }
-tokio = { version = "=1.41.1", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
-toml = "=0.8.19"
-tracing = "=0.1.40"
+tokio = { version = "=1.43.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
+toml = "=0.8.20"
+tracing = "=0.1.41"
 tracing-appender = "=0.2.3"
-tracing-subscriber = { version = "=0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "=0.3.19", features = ["env-filter"] }
 tree_magic_mini = { version = "=3.1.6", optional = true }
 trust-dns-resolver = "=0.23.2"
-url = { version = "2.5.3", features = ["serde"] }
-uuid = { version = "=1.11.0", features = ["v4"] }
+url = { version = "2.5.4", features = ["serde"] }
+uuid = { version = "=1.13.1", features = ["v4"] }
 warp = { version = "=0.3.7", features = ["tls"] }
-zip = "=2.2.0"
+zip = "=2.2.2"
 
 [dev-dependencies]
-mockall = "=0.13.0"
+mockall = "=0.13.1"
