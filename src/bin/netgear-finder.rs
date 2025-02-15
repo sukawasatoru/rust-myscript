@@ -721,15 +721,4 @@ mod tests {
         assert_eq!(data.len(), 4);
         assert_eq!(&data[..], [0, 1, 2, 3]);
     }
-
-    #[test]
-    fn rang() {
-        assert_eq!(
-            (0..(-1))
-                .map(|data| format!("{data}"))
-                .collect::<Vec<_>>()
-                .join(","),
-            ""
-        );
-    }
 }

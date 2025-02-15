@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 sukawasatoru
+ * Copyright 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -327,10 +327,10 @@ mod tests {
 
     #[test]
     fn next_password_generator_6() {
-        let gen = next_password_generator(vec![110, 033, 047, 096, 109, 067], false);
+        let gen = next_password_generator(vec![110, 33, 47, 96, 109, 67], false);
         let ascii_list = ascii_list();
 
-        assert_eq!(gen(None), vec![110, 033, 047, 096, 109, 067]);
+        assert_eq!(gen(None), vec![110, 33, 47, 96, 109, 67]);
         assert_eq!(
             gen(None),
             vec![
@@ -339,7 +339,7 @@ mod tests {
                 ascii_list[0],
                 ascii_list[0],
                 ascii_list[0],
-                068
+                68,
             ]
         );
     }

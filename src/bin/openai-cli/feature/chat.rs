@@ -1,5 +1,5 @@
 /*
- * Copyright 2023, 2024 sukawasatoru
+ * Copyright 2023, 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -484,7 +484,7 @@ mod tests {
     fn chat_completion_model_parse() {
         use ChatCompletionModel::*;
 
-        let _ = match GPT35Turbo {
+        match GPT35Turbo {
             GPT35Turbo => (),
             GPT35Turbo0301 => (),
             GPT35Turbo16k => {}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023 sukawasatoru
+ * Copyright 2022, 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
  */
 
 use anyhow::anyhow;
-use clap::Parser;
+use clap::builder::ArgPredicate;
+use clap::{Args, Parser};
 use futures::future::BoxFuture;
 use reqwest::{header, StatusCode};
 use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha3::{Digest, Sha3_224};
 use std::fmt::{Display, Formatter};
 use std::io::prelude::*;
@@ -81,21 +83,65 @@ impl std::error::Error for CheckError {
 /// Update checker for web site
 #[derive(Parser)]
 struct Opt {
-    /// Bot name for notifying to slack
-    #[arg(long, env, default_value = "siteupdatechecker")]
-    slack_notify_bot_name: String,
+    #[command(flatten)]
+    slack: Option<Slack>,
 
-    /// Channel ID to notify channel
-    #[arg(long, env)]
-    slack_notify_channel: String,
-
-    /// Web hooks URL for slack
-    #[arg(long, env)]
-    slack_notify_url: String,
+    #[command(flatten)]
+    telegram: Option<Telegram>,
 
     /// OpenTelemetry logs endpoint.
     #[arg(long, env)]
     otel_logs_endpoint: Option<Url>,
+}
+
+#[derive(Args)]
+struct Slack {
+    // use flag instead of the ArgGroup to use Option and flatten.
+    /// Notify to Slack
+    #[arg(
+        long,
+        env,
+        requires_ifs = [
+            (ArgPredicate::IsPresent, "slack_notify_channel"),
+            (ArgPredicate::IsPresent, "slack_notify_url"),
+        ],
+    )]
+    use_slack: bool,
+
+    /// Bot name for notifying to slack
+    #[arg(long, env, requires = "use_slack", default_value = "siteupdatechecker")]
+    slack_notify_bot_name: String,
+
+    /// Channel ID to notify to Slack
+    #[arg(long, env, requires = "use_slack")]
+    slack_notify_channel: Option<String>,
+
+    /// Web hooks URL for slack
+    #[arg(long, env, requires = "use_slack")]
+    slack_notify_url: Option<String>,
+}
+
+#[derive(Args)]
+struct Telegram {
+    // use flag instead of the ArgGroup to use Option and flatten.
+    /// Notify to Telegram
+    #[arg(
+        long,
+        env,
+        requires_ifs = [
+            (ArgPredicate::IsPresent, "telegram_bot_token"),
+            (ArgPredicate::IsPresent, "telegram_chat_id"),
+        ],
+    )]
+    use_telegram: bool,
+
+    /// Authorization token to use Bot.
+    #[arg(long, env, requires = "use_telegram")]
+    telegram_bot_token: Option<String>,
+
+    /// Chat ID to notify to Telegram
+    #[arg(long, env, requires = "use_telegram")]
+    telegram_chat_id: Option<String>,
 }
 
 #[tokio::main]
@@ -226,21 +272,51 @@ async fn main() -> Fallible<()> {
     println!("{new_prefs_string}");
 
     if !updated_sites.is_empty() || !error_sites.is_empty() {
-        info!("notify to slack");
-        let ret_slack = client
-            .post(&opt.slack_notify_url)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(generate_slack_payload(
-                &opt.slack_notify_bot_name,
-                &opt.slack_notify_channel,
-                &updated_sites,
-                &error_sites,
-            )?)
-            .send()
-            .await?;
-        info!(?ret_slack);
-        let ret_slack_response_text = ret_slack.text().await?;
-        info!(ret_slack_response_text);
+        if let Some(slack) = opt.slack {
+            info!("notify to slack");
+            let ret_slack = client
+                .post(
+                    slack
+                        .slack_notify_url
+                        .expect("slack_notify_url should not be None"),
+                )
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(generate_slack_payload(
+                    &slack.slack_notify_bot_name,
+                    &slack
+                        .slack_notify_channel
+                        .expect("slack_notify_channel should not be None"),
+                    &updated_sites,
+                    &error_sites,
+                )?)
+                .send()
+                .await?;
+            info!(?ret_slack);
+            info!(ret_slack_response_text = ret_slack.text().await?);
+        }
+
+        if let Some(telegram) = opt.telegram {
+            info!("notify to telegram");
+            let ret_telegram = client
+                .post(format!(
+                    "https://api.telegram.org/bot{}/sendMessage",
+                    telegram
+                        .telegram_bot_token
+                        .expect("telegram_bot_token should not be None"),
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(generate_telegram_payload(
+                    &telegram
+                        .telegram_chat_id
+                        .expect("telegram_chat_id should not be None"),
+                    &updated_sites,
+                    &error_sites,
+                )?)
+                .send()
+                .await?;
+            info!(?ret_telegram);
+            info!(ret_telegram_text = ret_telegram.text().await?);
+        }
     }
 
     if otel_guard.is_some() {
@@ -415,8 +491,6 @@ fn generate_slack_payload(
     updated_sites: &[Rc<Site>],
     error_sites: &[(Rc<Site>, anyhow::Error)],
 ) -> Fallible<String> {
-    use serde_json::json;
-
     let mut blocks = vec![];
     let mut text_source = vec![];
 
@@ -486,4 +560,167 @@ fn generate_slack_payload(
         "text": text_source.join(""),
     });
     Ok(serde_json::to_string(&payload)?)
+}
+
+fn generate_telegram_payload(
+    chat_id: &str,
+    updated_sites: &[Rc<Site>],
+    error_sites: &[(Rc<Site>, anyhow::Error)],
+) -> Fallible<String> {
+    let mut text = String::new();
+    let reg = regex::Regex::new(r#"([_*\[\]()~`>#+=\-|{}\.!])"#)?;
+
+    if !updated_sites.is_empty() {
+        text += "*Updated*";
+
+        for site in updated_sites {
+            text += &format!(
+                "\n[{}]({})",
+                reg.replace_all(&site.title, r#"\$1"#),
+                site.uri_open.as_ref().unwrap_or(&site.uri)
+            );
+        }
+    }
+
+    if !error_sites.is_empty() {
+        if !updated_sites.is_empty() {
+            text += "\n";
+        }
+        text += "*Error*";
+
+        for (site, e) in error_sites {
+            text += &format!(
+                "\n[{}]({})\n>{}",
+                reg.replace_all(&site.title, r#"\$1"#),
+                site.uri_open.as_ref().unwrap_or(&site.uri),
+                reg.replace_all(&e.to_string(), r#"\$1"#),
+            );
+        }
+    }
+
+    info!(text);
+    let payload = json!({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "MarkdownV2",
+    });
+    Ok(serde_json::to_string(&payload)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_cli() {
+        Opt::command().debug_assert();
+    }
+
+    #[test]
+    fn cli_slack_ok() {
+        Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-slack",
+            "--slack-notify-bot-name",
+            "bot-name",
+            "--slack-notify-channel",
+            "channel-name",
+            "--slack-notify-url",
+            "https://example.com/",
+        ])
+        .unwrap();
+
+        // w/o `--slack-notify-bot-name`.
+        Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-slack",
+            "--slack-notify-channel",
+            "channel-name",
+            "--slack-notify-url",
+            "https://example.com/",
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn cli_slack_missing_use_slack() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--slack-notify-channel",
+            "channel-name",
+            "--slack-notify-url",
+            "https://example.com/",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn cli_slack_missing_slack_notify_channel() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-slack",
+            "--slack-notify-url",
+            "https://example.com/",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn cli_slack_missing_slack_notify_url() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-slack",
+            "--slack-notify-channel",
+            "channel-name",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn cli_telegram_ok() {
+        Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-telegram",
+            "--telegram-bot-token",
+            "bot-id",
+            "--telegram-chat-id",
+            "chat-id",
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn cli_telegram_missing_use_telegram() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--telegram-bot-token",
+            "bot-id",
+            "--telegram-chat-id",
+            "chat-id",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn cli_telegram_missing_telegram_bot_token() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-telegram",
+            "--telegram-chat-id",
+            "chat-id",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn cli_telegram_missing_telegram_chat_id() {
+        let opt = Opt::try_parse_from([
+            "siteupdatechecker",
+            "--use-telegram",
+            "--telegram-bot-token",
+            "bot-id",
+        ]);
+        assert!(opt.is_err());
+    }
 }

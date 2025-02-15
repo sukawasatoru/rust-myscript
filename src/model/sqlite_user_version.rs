@@ -1,5 +1,5 @@
 /*
- * Copyright 2020, 2021, 2022, 2023 sukawasatoru
+ * Copyright 2020, 2021, 2022, 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -196,7 +196,7 @@ mod tests {
         while let Some(data) = futs.next().await {
             if let Err(e) = data {
                 dbg!(e);
-                assert!(false);
+                unreachable!();
             }
         }
     }
