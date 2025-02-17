@@ -20,7 +20,7 @@ use clap::{Args, Parser, ValueEnum};
 use reqwest::header;
 use rust_myscript::prelude::*;
 use serde_json::json;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -180,30 +180,56 @@ fn generate_telegram_payload(
     pplx_content: &str,
     pplx_citations: &Vec<&str>,
 ) -> Fallible<String> {
-    let pplx_content_w_citations = format!(
-        "{pplx_content}\n- - -\n{}",
-        pplx_citations
-            .iter()
-            .enumerate()
-            .map(|(i, data)| format!("[{}] {}", i + 1, data.chars().take(36).collect::<String>()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+    let reg = regex::Regex::new(r#"([_\[\]()~`>#+=\-|{}.!])"#)?;
 
-    let text = template_txt
-        .replace("{pplx}", &pplx_content_w_citations)
-        .replace(r#"\n"#, "\n")
-        .replace("**", "*");
-    let mut text = regex::Regex::new(r#"([_\[\]()~`>#+=\-|{}.!])"#)?
-        .replace_all(&text, r#"\$1"#)
+    // content 1. replace pplx strong to telegram's strong.
+    // content 2. escape for telegram's markdownv2.
+    // content 3. replace escaped refer mark to link.
+    let mut pplx_content = reg
+        .replace_all(&pplx_content.replace("**", "*"), r#"\$1"#)
         .into_owned();
     for (i, &entry) in pplx_citations.iter().enumerate() {
         let index = i + 1;
-        text = text.replace(
+        pplx_content = pplx_content.replace(
             &format!(r"\[{index}\]"),
             &format!(r"[\[{index}\]]({entry})"),
         );
     }
+
+    let pplx_content_w_citations = format!(
+        "{}\n\\- \\- \\-\n{}",
+        pplx_content,
+        pplx_citations
+            .iter()
+            .enumerate()
+            .map(|(i, data)| {
+                let mut line = String::with_capacity(data.len() + 4);
+                match i {
+                    0 => line.write_str("**>[")?,
+                    _ => line.write_str(">[")?,
+                };
+                line.write_fmt(format_args!(
+                    "{}] {}",
+                    i + 1,
+                    reg.replace_all(&data.chars().take(36).collect::<String>(), r#"\$1"#),
+                ))?;
+
+                if i == pplx_citations.len() - 1 {
+                    line.write_str("||")?;
+                }
+                Ok(line)
+            })
+            .collect::<Fallible<Vec<String>>>()?
+            .join("\n")
+    );
+
+    // template 1. replace `\n` string to new line for serde_json::json.
+    // template 2. escape template for telegram's markdownv2.
+    // template 3. embedding escaped text(w/ escaped citations) in an escaped template.
+    let text = template_txt.replace(r#"\n"#, "\n");
+    let text = reg
+        .replace_all(&text, r#"\$1"#)
+        .replace(r"\{pplx\}", &pplx_content_w_citations);
 
     debug!(%text);
 
