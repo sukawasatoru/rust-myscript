@@ -35,7 +35,7 @@ struct Opt {
 }
 
 #[cfg(target_os = "macos")]
-extern "C" {
+unsafe extern "C" {
     static errno: libc::c_int;
 
     fn clonefile(

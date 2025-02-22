@@ -22,8 +22,8 @@ use std::io::prelude::*;
 use std::io::{BufReader, Cursor};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use zip::result::ZipError;
 use zip::ZipArchive;
+use zip::result::ZipError;
 
 #[derive(Parser)]
 struct Opt {
@@ -299,40 +299,43 @@ mod tests {
 
     #[test]
     fn next_password_generator_0() {
-        let gen = next_password_generator(vec![b' '], false);
+        let generator = next_password_generator(vec![b' '], false);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
-            assert_eq!(gen(None), vec![value]);
+            assert_eq!(generator(None), vec![value]);
         }
-        assert_eq!(gen(None), vec![ascii_list[0], ascii_list[0]]);
-        assert_eq!(gen(None), vec![ascii_list[0], ascii_list[1]]);
+        assert_eq!(generator(None), vec![ascii_list[0], ascii_list[0]]);
+        assert_eq!(generator(None), vec![ascii_list[0], ascii_list[1]]);
         assert_eq!(
-            gen(Some(vec![ascii_list[0], ascii_list[1]])),
+            generator(Some(vec![ascii_list[0], ascii_list[1]])),
             vec![ascii_list[1], ascii_list[1]]
         );
-        assert_eq!(gen(None), vec![ascii_list[0], ascii_list[2]]);
+        assert_eq!(generator(None), vec![ascii_list[0], ascii_list[2]]);
     }
 
     #[test]
     fn next_password_generator_2() {
-        let gen = next_password_generator(vec![b' ', b' '], false);
+        let generator = next_password_generator(vec![b' ', b' '], false);
         let ascii_list = ascii_list();
 
         for value in ascii_list.clone() {
-            assert_eq!(gen(None), vec![b' ', value]);
+            assert_eq!(generator(None), vec![b' ', value]);
         }
-        assert_eq!(gen(None), vec![ascii_list[0], ascii_list[0], ascii_list[0]]);
+        assert_eq!(
+            generator(None),
+            vec![ascii_list[0], ascii_list[0], ascii_list[0]]
+        );
     }
 
     #[test]
     fn next_password_generator_6() {
-        let gen = next_password_generator(vec![110, 33, 47, 96, 109, 67], false);
+        let generator = next_password_generator(vec![110, 33, 47, 96, 109, 67], false);
         let ascii_list = ascii_list();
 
-        assert_eq!(gen(None), vec![110, 33, 47, 96, 109, 67]);
+        assert_eq!(generator(None), vec![110, 33, 47, 96, 109, 67]);
         assert_eq!(
-            gen(None),
+            generator(None),
             vec![
                 ascii_list[0],
                 ascii_list[0],

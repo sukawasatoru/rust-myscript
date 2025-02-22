@@ -615,7 +615,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
                 anyhow::bail!("n != 2; todo")
             }
 
-            let len = (buf[0] as usize) << 8 | buf[1] as usize;
+            let len = ((buf[0] as usize) << 8) | buf[1] as usize;
 
             if 0 < len {
                 trace!(%len, "consume");
@@ -638,7 +638,7 @@ fn decode_datagram(datagram: &[u8]) -> anyhow::Result<DeviceInfo> {
             anyhow::bail!("unexpected payload")
         }
 
-        let len = (buf[0] as usize) << 8 | buf[1] as usize;
+        let len = ((buf[0] as usize) << 8) | buf[1] as usize;
 
         if len == 0 {
             trace!("len == 0");
@@ -706,7 +706,7 @@ mod tests {
         let n = (&data[..]).read(&mut buf).unwrap();
 
         assert_eq!(n, 2);
-        assert_eq!((buf[0] as u16) << 8 | buf[1] as u16, 258);
+        assert_eq!(((buf[0] as u16) << 8) | buf[1] as u16, 258);
     }
 
     #[test]

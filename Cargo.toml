@@ -4,7 +4,7 @@ description = "Super good command-line tools for myself"
 authors = ["Satoru Sukawa <sukawasatoru.github@outlook.jp>"]
 homepage = "https://github.com/sukawasatoru/rust-myscript"
 repository = "https://github.com/sukawasatoru/rust-myscript.git"
-edition = "2021"
+edition = "2024"
 
 [build-dependencies]
 anyhow = "*"
