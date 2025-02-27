@@ -17,6 +17,7 @@
 use chrono::Datelike;
 use clap::builder::ArgPredicate;
 use clap::{Args, Parser, ValueEnum};
+use regex::Regex;
 use reqwest::header;
 use rust_myscript::prelude::*;
 use serde_json::json;
@@ -26,7 +27,7 @@ use std::time::Duration;
 #[derive(Parser)]
 struct Opt {
     /// Model name.
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "sonar-pro")]
     model: OptModel,
 
     /// API Key for Perplexity AI
@@ -40,14 +41,14 @@ struct Opt {
 #[derive(Clone, ValueEnum)]
 enum OptModel {
     SonarPro,
-    SonarReasoningPro,
+    SonarDeepResearch,
 }
 
 impl Display for OptModel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             OptModel::SonarPro => f.write_str("sonar-pro"),
-            OptModel::SonarReasoningPro => f.write_str("sonar-reasoning-pro"),
+            OptModel::SonarDeepResearch => f.write_str("sonar-deep-research"),
         }
     }
 }
@@ -87,7 +88,7 @@ fn main() -> Fallible<()> {
     let opt = Opt::parse();
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60 * 5))
+        .timeout(Duration::from_secs(60 * 10))
         .user_agent("pplx-news (https://github.com/sukawasatoru/rust-myscript/)")
         .build()?;
 
@@ -180,11 +181,15 @@ fn generate_telegram_payload(
     pplx_content: &str,
     pplx_citations: &Vec<&str>,
 ) -> Fallible<String> {
-    let reg = regex::Regex::new(r#"([_\[\]()~`>#+=\-|{}.!])"#)?;
+    let reg = Regex::new(r#"([_\[\]()~`>#+=\-|{}.!])"#)?;
 
-    // content 1. replace pplx strong to telegram's strong.
-    // content 2. escape for telegram's markdownv2.
-    // content 3. replace escaped refer mark to link.
+    let reg_remove_think = Regex::new(r"^<think>[\s\S]+</think>(.*)")?;
+
+    // content 1. remove thinking process.
+    // content 2. replace pplx strong to telegram's strong.
+    // content 3. escape for telegram's markdownv2.
+    // content 4. replace escaped refer mark to link.
+    let pplx_content = reg_remove_think.replace_all(pplx_content, r"$1");
     let mut pplx_content = reg
         .replace_all(&pplx_content.replace("**", "*"), r#"\$1"#)
         .into_owned();
