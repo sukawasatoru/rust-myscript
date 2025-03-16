@@ -19,10 +19,13 @@ use clap::builder::ArgPredicate;
 use clap::{Args, Parser, ValueEnum};
 use regex::Regex;
 use reqwest::header;
+use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
 use serde_json::json;
 use std::fmt::{Display, Formatter, Write};
 use std::time::Duration;
+use tracing_subscriber::EnvFilter;
+use url::Url;
 
 #[derive(Parser)]
 struct Opt {
@@ -36,11 +39,17 @@ struct Opt {
 
     #[command(flatten)]
     telegram: Option<OptTelegram>,
+
+    /// OpenTelemetry logs endpoint.
+    #[arg(long, env)]
+    otel_logs_endpoint: Option<Url>,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, ValueEnum)]
 enum OptModel {
     SonarPro,
+    SonarReasoningPro,
     SonarDeepResearch,
 }
 
@@ -48,6 +57,7 @@ impl Display for OptModel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             OptModel::SonarPro => f.write_str("sonar-pro"),
+            OptModel::SonarReasoningPro => f.write_str("sonar-reasoning-pro"),
             OptModel::SonarDeepResearch => f.write_str("sonar-deep-research"),
         }
     }
@@ -81,16 +91,35 @@ struct OptTelegram {
     telegram_text_template: Option<String>,
 }
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
-    tracing_subscriber::fmt::init();
 
     let opt = Opt::parse();
 
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60 * 10))
         .user_agent("pplx-news (https://github.com/sukawasatoru/rust-myscript/)")
         .build()?;
+
+    let otel_guard = match opt.otel_logs_endpoint {
+        Some(endpoint) => {
+            let guard = init_otel(
+                client.clone(),
+                endpoint,
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_BIN_NAME"),
+            )?;
+            Some(guard)
+        }
+        None => {
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .with_writer(std::io::stderr)
+                .init();
+            None
+        }
+    };
 
     let current = chrono::Local::now();
     let res = client
@@ -100,27 +129,63 @@ fn main() -> Fallible<()> {
         .bearer_auth(&opt.api_key)
         .body(serde_json::to_string(&json!({
             "model": opt.model.to_string(),
-            "search_recency_filter": "day",
+            // TODO: use `"search_domain_filter": [""]`
+            //  https://docs.perplexity.ai/api-reference/chat-completions#body-search-domain-filter
             "messages": [
+                {
+                    "role": "system",
+                    "content": "最新のニュースを提供してください。詳細はユーザーのプロンプトに従ってください。",
+                },
                 {
                     "role": "user",
                     "content": format!(
-                        "{}-{:02}-{:02} のニュース",
-                        current.year(),
-                        current.month(),
-                        current.day(),
+                        r#"
+{year}年{month}月{day}日の主要ニュースを要約してください。各項目は150字以内で簡潔にまとめ、以下のカテゴリーごとに、信頼性の高い情報源から検証された情報を整理してください：
+
+1. **トップニュース**：過去24時間以内の重要ニュース3点。各ニュースに少なくとも2つの一次情報源と発表時間を明記し、特に公式発表や複数メディアが報じている内容を優先。
+
+2. **テクノロジー・IT**：新製品発表、技術革新、AIやデジタル分野の最新動向3点。企業の公式発表や専門メディアからの情報を引用してください。特に発表から48時間以内の最新情報を優先。
+
+3. **社会・生活**：日本国内の社会現象、健康・安全情報など生活関連ニュース2点。政府機関や公共団体の発表、専門家の見解を含めてください。
+
+4. **今日のトレンド**：Twitter(X)等で拡散している話題1点を、トレンド化の背景や関連データと共に説明してください。
+
+5. **ゲーム**：下記のいずれかに該当するゲーム関連のニュース3点をまとめてください：
+- 新作発表・重要アップデート情報（開発元の公式発表があればそれを優先）
+- 任天堂関連の公式発表や新作情報
+- コンソール/PCゲーム市場の重要な動向
+- 人気タイトルのイベント情報
+- 業界の経済動向や企業戦略
+
+6. **天気情報**：{year}年{month}月{day}日の全国の気象状況と横浜市の詳細予報。
+
+最後に、ニュース全体から見える重要なトレンドや関連性を3文以内でまとめ、使用した合計文字数を報告してください。
+"#,
+                        year = current.year(),
+                        month = current.month(),
+                        day = current.day(),
                     ),
                 }
             ]
         }))?)
-        .send()?;
+        .send()
+        .await?;
 
     info!(?res);
-    let res_text = res.text()?;
+    let res_text = res.text().await?;
     debug!(%res_text);
 
     let res = serde_json::from_str::<serde_json::Value>(&res_text)?;
     let (pplx_content, pplx_citations) = deconstruct_payload(&res)?;
+    let pplx_citations = pplx_citations
+        .iter()
+        .map(|data| {
+            Url::parse(data).unwrap_or_else(|e| {
+                warn!(?e, url = data, "failed to parse url");
+                Url::parse("https://failed-to-parse-url.example.com/").expect("default url")
+            })
+        })
+        .collect::<Vec<_>>();
 
     println!(
         "{pplx_content}\n{}",
@@ -153,9 +218,23 @@ fn main() -> Fallible<()> {
                 pplx_content,
                 &pplx_citations,
             )?)
-            .send()?;
+            .send()
+            .await?;
         info!(?ret_telegram);
-        debug!(ret_telegram_text = %ret_telegram.text()?);
+        debug!(ret_telegram_text = %ret_telegram.text().await?);
+    }
+
+    if otel_guard.is_some() {
+        let current_string = current.to_rfc3339();
+        for entry in pplx_citations {
+            info!(
+                event.name = "device.app.citations",
+                datetime = current_string,
+                model_name = %opt.model,
+                citation_url_domain = %entry.domain().expect("url.domain"),
+                citation_url_full = entry.as_str(),
+            );
+        }
     }
 
     Ok(())
@@ -179,7 +258,7 @@ fn generate_telegram_payload(
     chat_id: &str,
     template_txt: &str,
     pplx_content: &str,
-    pplx_citations: &Vec<&str>,
+    pplx_citations: &[Url],
 ) -> Fallible<String> {
     let reg = Regex::new(r#"([_\[\]()~`>#+=\-|{}.!])"#)?;
 
@@ -193,7 +272,7 @@ fn generate_telegram_payload(
     let mut pplx_content = reg
         .replace_all(&pplx_content.replace("**", "*"), r#"\$1"#)
         .into_owned();
-    for (i, &entry) in pplx_citations.iter().enumerate() {
+    for (i, entry) in pplx_citations.iter().enumerate() {
         let index = i + 1;
         pplx_content = pplx_content.replace(
             &format!(r"\[{index}\]"),
@@ -201,6 +280,7 @@ fn generate_telegram_payload(
         );
     }
 
+    // add citations at bottom.
     let pplx_content_w_citations = format!(
         "{}\n\\- \\- \\-\n{}",
         pplx_content,
@@ -208,16 +288,22 @@ fn generate_telegram_payload(
             .iter()
             .enumerate()
             .map(|(i, data)| {
-                let mut line = String::with_capacity(data.len() + 4);
+                let mut line = String::new();
                 match i {
-                    0 => line.write_str("**>[")?,
-                    _ => line.write_str(">[")?,
+                    0 => line.write_str(r"**>\[")?,
+                    _ => line.write_str(r">\[")?,
                 };
-                line.write_fmt(format_args!(
-                    "{}] {}",
+
+                write!(
+                    line,
+                    r"{}\] [{}]({})",
                     i + 1,
-                    reg.replace_all(&data.chars().take(36).collect::<String>(), r#"\$1"#),
-                ))?;
+                    reg.replace_all(
+                        data.domain().expect("citation should have a domain"),
+                        r#"\$1"#
+                    ),
+                    data,
+                )?;
 
                 if i == pplx_citations.len() - 1 {
                     line.write_str("||")?;
@@ -348,7 +434,62 @@ mod tests {
     fn generate_telegram_payload_ok() {
         let res = serde_json::from_str::<serde_json::Value>(RES_TEXT).unwrap();
         let (content, citations) = deconstruct_payload(&res).unwrap();
-        generate_telegram_payload("123", "template text\n{pplx}", content, &citations).unwrap();
+        let citations = citations
+            .iter()
+            .map(|data| Url::parse(data).expect("malformed url"))
+            .collect::<Vec<_>>();
+        let payload =
+            generate_telegram_payload("123", "template text\n{pplx}", content, &citations).unwrap();
+
+        let mut actual_payload_wo_text =
+            serde_json::from_str::<serde_json::Value>(&payload).unwrap();
+        actual_payload_wo_text
+            .as_object_mut()
+            .unwrap()
+            .remove("text");
+        assert_eq!(
+            actual_payload_wo_text,
+            json!({ "chat_id": "123", "parse_mode": "MarkdownV2" })
+        );
+
+        let actual_text = serde_json::from_str::<serde_json::Value>(&payload).unwrap();
+        let actual_text = actual_text["text"].as_str().unwrap();
+        let expected_text = r#"template text
+Lorem ipsum dolor sit amet:
+
+1\. consectetur adipiscing elit:
+sed do eiusmod tempor incididunt ut labore et dolore magna aliqua[\[1\]](https://example.com/)\.
+
+2\. Ut enim ad minim veniam:
+\- quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat[\[2\]](https://2.example.com/2?foo=bar#baz)\.
+\- Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur[\[4\]](https://4.example.com/4)\.
+\- Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum[\[5\]](https://5.example.com/5)\.
+
+3\. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium:
+\- totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo[\[4\]](https://4.example.com/4)\.
+
+4\. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit:
+\- sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt[\[4\]](https://4.example.com/4)\.
+\- Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem[\[2\]](https://2.example.com/2?foo=bar#baz)\.
+
+5\. Ut enim ad minima veniam:
+\- quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur[\[7\]](https://7.example.com/7)?
+\- Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur[\[7\]](https://7.example.com/7)?
+
+But I must explain to you how all this mistaken idea of denouncing pleasure and praising pain was born and I will give you a complete account of the system, and expound the actual teachings of the great explorer of the truth, the master\-builder of human happiness\.
+\- \- \-
+**>\[1\] [example\.com](https://example.com/)
+>\[2\] [2\.example\.com](https://2.example.com/2?foo=bar#baz)
+>\[3\] [3\.example\.com](https://3.example.com/3)
+>\[4\] [4\.example\.com](https://4.example.com/4)
+>\[5\] [5\.example\.com](https://5.example.com/5)
+>\[6\] [6\.example\.com](https://6.example.com/6)
+>\[7\] [7\.example\.com](https://7.example.com/7)
+>\[8\] [8\.example\.com](https://8.example.com/8)
+>\[9\] [9\.example\.com](https://9.example.com/9)
+>\[10\] [10\.example\.com](https://10.example.com/10)||"#;
+
+        assert_eq!(actual_text, expected_text);
     }
 
     const RES_TEXT: &str = r#"
@@ -364,16 +505,16 @@ mod tests {
     "num_search_queries": 2
   },
   "citations": [
-    "https://example.com/1",
-    "https://example.com/2",
-    "https://example.com/3",
-    "https://example.com/4",
-    "https://example.com/5",
-    "https://example.com/6",
-    "https://example.com/7",
-    "https://example.com/8",
-    "https://example.com/9",
-    "https://example.com/10"
+    "https://example.com",
+    "https://2.example.com/2?foo=bar#baz",
+    "https://3.example.com/3",
+    "https://4.example.com/4",
+    "https://5.example.com/5",
+    "https://6.example.com/6",
+    "https://7.example.com/7",
+    "https://8.example.com/8",
+    "https://9.example.com/9",
+    "https://10.example.com/10"
   ],
   "object": "chat.completion",
   "choices": [
