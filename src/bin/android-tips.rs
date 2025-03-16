@@ -380,6 +380,15 @@ fn main() {
   API Level: 34
 "#,
         ),
+        OsInfo(
+            &["v", "15", "vanilla", "ice", "cream", "api35", "35"],
+            r#"Android 15
+  Initial release: 2024
+  Code name: Vanilla Ice Cream
+  VERSION_CODES: V
+  API Level: 35
+"#,
+        ),
     ];
 
     for param in std::env::args().skip(1) {
