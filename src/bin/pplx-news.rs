@@ -21,6 +21,7 @@ use regex::Regex;
 use reqwest::header;
 use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
+use serde::Serialize;
 use serde_json::json;
 use std::fmt::{Display, Formatter, Write};
 use std::time::Duration;
@@ -91,6 +92,25 @@ struct OptTelegram {
     telegram_text_template: Option<String>,
 }
 
+#[allow(dead_code)]
+#[derive(Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SearchContextSize {
+    High,
+    Medium,
+    Low,
+}
+
+#[allow(dead_code)]
+#[derive(Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SearchRecencyFilter {
+    Month,
+    Week,
+    Day,
+    Hour,
+}
+
 #[tokio::main]
 async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
@@ -131,6 +151,10 @@ async fn main() -> Fallible<()> {
             "model": opt.model.to_string(),
             // TODO: use `"search_domain_filter": [""]`
             //  https://docs.perplexity.ai/api-reference/chat-completions#body-search-domain-filter
+            "web_search_options": {
+                "search_context_size": SearchContextSize::High,
+            },
+            "search_recency_filter": SearchRecencyFilter::Week,
             "messages": [
                 {
                     "role": "system",
