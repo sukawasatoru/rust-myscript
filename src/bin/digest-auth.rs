@@ -4,9 +4,9 @@ use clap::Parser;
 use digest::{Digest, FixedOutputReset};
 use rust_myscript::prelude::*;
 use std::str::FromStr;
-use warp::http::header;
-use warp::http::StatusCode;
 use warp::Filter;
+use warp::http::StatusCode;
+use warp::http::header;
 
 #[derive(Debug, Parser)]
 struct Opt {

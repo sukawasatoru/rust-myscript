@@ -14,24 +14,24 @@
  * limitations under the License.
  */
 
+use axum::Router;
 use axum::extract::Query;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use chrono::{DateTime, Duration, Utc};
 use rand::distr::{Alphanumeric, SampleString};
-use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::Client;
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use rust_myscript::prelude::*;
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{Debug, Formatter};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::broadcast::{Receiver, Sender, channel};
 use url::Url;
 
 #[tokio::main]
@@ -219,7 +219,7 @@ async fn handler_callback2(
             } else {
                 info!("received illegal authentication state");
                 create_response_html("received illegal authentication state").into_response()
-            }
+            };
         }
         Err(e) => {
             info!(?e);

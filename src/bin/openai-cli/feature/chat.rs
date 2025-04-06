@@ -15,7 +15,7 @@
  */
 
 use crate::data::repository::{ChatRepository, GetChatRepository, GetPreferencesRepository};
-use crate::feature::chat::select_conversation::{select_conversation, SelectedType};
+use crate::feature::chat::select_conversation::{SelectedType, select_conversation};
 use crate::feature::chat::string_value_serializer::get_serialized_string;
 use crate::functions::{prepare_headers, print_stdin_help};
 use crate::model::{Chat, ChatID, Message, MessageID, MessageRole};
@@ -28,7 +28,7 @@ use reqwest::blocking::Client;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::prelude::*;
-use std::io::{stdin, stdout, BufReader, Read};
+use std::io::{BufReader, Read, stdin, stdout};
 use std::str::FromStr;
 use tracing::instrument;
 use uuid::Uuid;

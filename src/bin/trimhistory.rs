@@ -1,9 +1,9 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use rusqlite::{named_params, CachedStatement, Connection, Rows, Transaction};
+use rusqlite::{CachedStatement, Connection, Rows, Transaction, named_params};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
 use std::marker::PhantomPinned;
@@ -14,7 +14,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::{INTEGER, TEXT};
-use tinytable_rs::{column, Column, Table};
+use tinytable_rs::{Column, Table, column};
 
 #[derive(Debug, Parser)]
 struct Opt {

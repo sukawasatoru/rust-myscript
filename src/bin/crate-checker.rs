@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023, 2024 sukawasatoru
+ * Copyright 2022, 2023, 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,13 @@ use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use regex::Regex;
 use reqwest::StatusCode;
-use rusqlite::{named_params, Connection, Transaction};
+use rusqlite::{Connection, Transaction, named_params};
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::future::Future;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ use std::sync::{Arc, LazyLock};
 use std::thread::JoinHandle;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::{INTEGER, TEXT};
-use tinytable_rs::{column, Column, Table};
+use tinytable_rs::{Column, Table, column};
 use tokio::sync::Semaphore;
 use url::Url;
 

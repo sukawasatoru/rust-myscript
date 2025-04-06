@@ -1,5 +1,5 @@
 /*
- * Copyright 2020, 2021, 2022, 2023 sukawasatoru
+ * Copyright 2020, 2021, 2022, 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
-use tinytable_rs::{column, Column, Table};
+use tinytable_rs::{Column, Table, column};
 
 #[derive(Parser)]
 struct Opt {
@@ -227,11 +227,7 @@ fn check_data_source_db(db_path: &Path, plain_password: &str) -> anyhow::Result<
         .next()
         .context("SELECT count(*)")??;
 
-    if ret {
-        Ok(Some(()))
-    } else {
-        Ok(None)
-    }
+    if ret { Ok(Some(())) } else { Ok(None) }
 }
 
 fn check_data_source_net(plain_password: &str) -> anyhow::Result<Option<()>> {

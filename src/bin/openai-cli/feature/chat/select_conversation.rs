@@ -1,5 +1,5 @@
 /*
- * Copyright 2023, 2024 sukawasatoru
+ * Copyright 2023, 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
@@ -67,7 +67,7 @@ pub fn select_conversation(conversations: &[(Chat, Vec<Message>)]) -> Fallible<S
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                    return Ok(SelectedType::Cancelled)
+                    return Ok(SelectedType::Cancelled);
                 }
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(SelectedType::Cancelled),
                 KeyCode::Enter => {

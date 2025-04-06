@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 sukawasatoru
+ * Copyright 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,24 +16,24 @@
 use clap::Parser;
 use directories::ProjectDirs;
 use ratatui::crossterm::event::{
-    poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers,
-    MouseEventKind,
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind, poll,
+    read,
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph};
 use rust_myscript::prelude::*;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{stderr, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, stderr};
 use std::ops::{Deref, DerefMut};
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 use tracing::instrument;
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -368,11 +368,7 @@ impl<'a> SelectFilesApp<'a> {
             .enumerate()
             .filter_map(
                 |(index, entry)| {
-                    if entry.checked {
-                        Some(index)
-                    } else {
-                        None
-                    }
+                    if entry.checked { Some(index) } else { None }
                 },
             )
             .collect::<Vec<_>>())

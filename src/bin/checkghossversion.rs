@@ -3,11 +3,11 @@ use regex::Regex;
 use rust_myscript::prelude::*;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fmt::{self, Write as FmtWrite};
 use std::{
     fs::{self, File},
-    io::{prelude::*, BufWriter},
+    io::{BufWriter, prelude::*},
     path::{Path, PathBuf},
 };
 

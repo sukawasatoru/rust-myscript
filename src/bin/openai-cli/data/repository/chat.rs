@@ -1,5 +1,5 @@
 /*
- * Copyright 2023, 2024 sukawasatoru
+ * Copyright 2023, 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use crate::model::{Chat, ChatID, FileVersion, Message, MessageID, MessageRole};
 use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-use rusqlite::{named_params, params_from_iter, Connection, ToSql};
+use rusqlite::{Connection, ToSql, named_params, params_from_iter};
 use rust_myscript::model::SQLiteUserVersion;
 use rust_myscript::prelude::*;
 use std::fs;
@@ -28,7 +28,7 @@ use tinytable_rs::ForeignKeyAttribute::{
     CASCADE, DEFERRABLE_INITIALLY_DEFERRED, ON_DELETE, REFERENCES,
 };
 use tinytable_rs::Type::{INTEGER, TEXT};
-use tinytable_rs::{column, foreign_key, Column, Table};
+use tinytable_rs::{Column, Table, column, foreign_key};
 use tracing::instrument;
 use uuid::Uuid;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-use crate::data::repository::{GetPreferencesRepository, PreferencesRepository};
 use crate::SettingsKey;
+use crate::data::repository::{GetPreferencesRepository, PreferencesRepository};
 use rust_myscript::prelude::*;
 
 pub fn list_settings<Ctx>(context: Ctx) -> Fallible<()>

@@ -1,4 +1,4 @@
-use clap::{value_parser, Parser};
+use clap::{Parser, value_parser};
 use regex::Regex;
 use rust_myscript::prelude::*;
 use std::io::BufRead;

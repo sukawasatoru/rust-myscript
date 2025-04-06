@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 sukawasatoru
+ * Copyright 2024, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +18,19 @@ use crate::prelude::*;
 use opentelemetry::KeyValue;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_semantic_conventions::SCHEMA_URL;
 use opentelemetry_semantic_conventions::resource::{
     DEPLOYMENT_ENVIRONMENT, HOST_ARCH, OS_TYPE, SERVICE_INSTANCE_ID, SERVICE_NAME,
     SERVICE_NAMESPACE, SERVICE_VERSION, TELEMETRY_SDK_LANGUAGE, TELEMETRY_SDK_NAME,
     TELEMETRY_SDK_VERSION,
 };
-use opentelemetry_semantic_conventions::SCHEMA_URL;
 use reqwest::Client;
 use std::str::FromStr;
+use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::FmtSubscriber;
 use url::Url;
 
 pub fn init_otel(

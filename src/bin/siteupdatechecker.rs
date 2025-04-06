@@ -18,7 +18,7 @@ use anyhow::anyhow;
 use clap::builder::ArgPredicate;
 use clap::{Args, Parser};
 use futures::future::BoxFuture;
-use reqwest::{header, StatusCode};
+use reqwest::{StatusCode, header};
 use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -344,7 +344,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                 return Err(CheckError {
                     site,
                     source: anyhow!(e).context("failed to parse a date string to a header value"),
-                })
+                });
             }
         }
     }
@@ -357,7 +357,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                 return Err(CheckError {
                     site,
                     source: anyhow!(e).context("failed to parse a etag string to a header value"),
-                })
+                });
             }
         }
     }
@@ -368,7 +368,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
             return Err(CheckError {
                 site,
                 source: anyhow!(e).context("failed to send request"),
-            })
+            });
         }
     };
 
@@ -394,7 +394,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                         return Err(CheckError {
                             site,
                             source: anyhow!(e).context("failed to parse a date to string (200)"),
-                        })
+                        });
                     }
                 },
                 etag: match get_header_value(&response, &header::ETAG) {
@@ -403,7 +403,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                         return Err(CheckError {
                             site,
                             source: anyhow!(e).context("failed to parse a etag to string (200)"),
-                        })
+                        });
                     }
                 },
                 ..site
@@ -418,7 +418,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                         return Err(CheckError {
                             site,
                             source: anyhow!(e).context("failed to parse a date to string (304)"),
-                        })
+                        });
                     }
                 },
                 etag: match get_header_value(&response, &header::ETAG) {
@@ -427,7 +427,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                         return Err(CheckError {
                             site,
                             source: anyhow!(e).context("failed to parse a etag to string (304)"),
-                        })
+                        });
                     }
                 },
                 ..site
@@ -465,7 +465,7 @@ async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk,
             return Err(CheckError {
                 site,
                 source: anyhow!(e).context("failed to parse response"),
-            })
+            });
         }
     };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 sukawasatoru
+ * Copyright 2023, 2025 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use async_stream::try_stream;
 use clap::{Parser, ValueEnum};
 use futures::stream::FuturesOrdered;
-use futures::{pin_mut, Stream, StreamExt};
+use futures::{Stream, StreamExt, pin_mut};
 use rust_myscript::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
