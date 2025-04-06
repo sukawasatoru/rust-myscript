@@ -46,13 +46,36 @@ struct Opt {
     #[arg(short = 't', long)]
     list: bool,
 
+    /// Lock archive
+    #[arg(short)]
+    k: bool,
+
     /// Compression method (0..=5).
     #[arg(short, value_parser = clap::value_parser!(u8).range(0..=5))]
     m: Option<u8>,
 
+    /// Force exhaustive search
+    #[arg(long)]
+    mcx: bool,
+
+    /// Select the dictionary size.
+    /// For RAR 5.0 archive format the dictionary size can be:
+    /// 128 KB, 256 KB, 512 KB, 1 MB, 2 MB, 4 MB, 8 MB, 16 MB,
+    /// 32 MB, 64 MB, 128 MB, 256 MB, 512 MB, 1 GB, 2 GB, 4 GB.
+    ///
+    /// RAR 7.0 extends the maximum dictionary size up to 64 GB
+    /// and permits not power of 2 sizes for dictionaries exceeding 4 GB.
+    /// Such archives can be unpacked by RAR 7.0 and newer.
+    #[arg(long)]
+    md: Option<String>,
+
     /// Add data recovery record.
     #[arg(value_name = "n", long)]
     rr: Option<u16>,
+
+    /// Create solid archive
+    #[arg(short)]
+    s: bool,
 
     /// Encrypt both file data and header.
     #[arg(long)]
@@ -88,14 +111,31 @@ fn main() -> Fallible<()> {
         }
     }
 
+    if opt.k {
+        args.extend_from_slice(&["-k"]);
+    }
+
     let m = opt.m.map(|data| format!("-m{}", data));
     if let Some(ref data) = m {
         args.extend_from_slice(&[data]);
     }
 
-    let rr = opt.rr.map(|data| data.to_string());
+    if opt.mcx {
+        args.extend_from_slice(&["-mcx+"]);
+    }
+
+    let md = opt.md.map(|data| format!("-md{}", data));
+    if let Some(ref data) = md {
+        args.extend_from_slice(&[data]);
+    }
+
+    let rr = opt.rr.map(|data| format!("-rr{}", data));
     if let Some(ref n) = rr {
-        args.extend_from_slice(&["-rr", n]);
+        args.extend_from_slice(&[n]);
+    }
+
+    if opt.s {
+        args.extend_from_slice(&["-s"]);
     }
 
     if opt.hp {
