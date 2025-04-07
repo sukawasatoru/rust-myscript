@@ -77,6 +77,22 @@ struct Opt {
     #[arg(short)]
     s: bool,
 
+    /// Create volumes of the specified size `<size>[b|B|k|K|m|M|g|G|t|T]`.
+    ///
+    /// Unit type character following the size value can be 'b' or 'B'
+    /// for bytes, 'k' for kilobytes, 'K' for thousands of bytes,
+    /// 'm' for megabytes, 'M' for millions of bytes, 'g' for gigabytes,
+    /// 'G' for billions of bytes, 't' for terabytes, 'T' for trillions
+    /// of bytes. If this character is not present, the size value
+    /// is treated as thousands of bytes.
+    ///
+    /// If the size is omitted, autodetection will be used.
+    ///
+    /// It is allowed to enter decimal fractions using the dot as
+    /// the decimal mark. For example, -v1.5g means 1.5 gigabytes.
+    #[arg(long)]
+    volume: Option<String>,
+
     /// Encrypt both file data and header.
     #[arg(long)]
     hp: bool,
@@ -136,6 +152,11 @@ fn main() -> Fallible<()> {
 
     if opt.s {
         args.extend_from_slice(&["-s"]);
+    }
+
+    let volume = opt.volume.map(|data| format!("-v{}", data));
+    if let Some(ref data) = volume {
+        args.extend_from_slice(&[data]);
     }
 
     if opt.hp {
