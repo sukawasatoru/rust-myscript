@@ -149,8 +149,9 @@ async fn main() -> Fallible<()> {
         .bearer_auth(&opt.api_key)
         .body(serde_json::to_string(&json!({
             "model": opt.model.to_string(),
-            // TODO: use `"search_domain_filter": [""]`
-            //  https://docs.perplexity.ai/api-reference/chat-completions#body-search-domain-filter
+            "search_domain_filter": [
+                "-note.com",
+            ],
             "web_search_options": {
                 "search_context_size": SearchContextSize::High,
             },
