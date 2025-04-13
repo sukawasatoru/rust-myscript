@@ -38,6 +38,10 @@ struct Opt {
     #[arg(long, env)]
     api_key: String,
 
+    /// Blacklisting domain.
+    #[arg(long, env, value_delimiter = ',')]
+    ban_domain: Vec<String>,
+
     #[command(flatten)]
     telegram: Option<OptTelegram>,
 
@@ -149,9 +153,11 @@ async fn main() -> Fallible<()> {
         .bearer_auth(&opt.api_key)
         .body(serde_json::to_string(&json!({
             "model": opt.model.to_string(),
-            "search_domain_filter": [
-                "-note.com",
-            ],
+            "search_domain_filter": opt
+                .ban_domain
+                .iter()
+                .map(|data| format!("-{data}"))
+                .collect::<Vec<_>>(),
             "web_search_options": {
                 "search_context_size": SearchContextSize::High,
             },
