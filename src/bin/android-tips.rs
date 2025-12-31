@@ -389,6 +389,15 @@ fn main() {
   API Level: 35
 "#,
         ),
+        OsInfo(
+            &["Baklava", "bak", "baka", "api36", "36"],
+            r#"Android 16
+  Initial release: 2025
+  Code name: Baklava
+  VERSION_CODES: BAKLAVA
+  API Level: 36
+"#,
+        ),
     ];
 
     for param in std::env::args().skip(1) {
