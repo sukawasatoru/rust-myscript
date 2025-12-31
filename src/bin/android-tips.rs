@@ -390,7 +390,7 @@ fn main() {
 "#,
         ),
         OsInfo(
-            &["Baklava", "bak", "baka", "api36", "36"],
+            &["16", "Baklava", "bak", "baka", "api36", "36"],
             r#"Android 16
   Initial release: 2025
   Code name: Baklava
