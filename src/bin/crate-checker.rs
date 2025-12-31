@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clap::{CommandFactory, Parser, ValueHint};
 use futures::StreamExt;
 use regex::Regex;
@@ -22,7 +22,7 @@ use reqwest::StatusCode;
 use rusqlite::{Connection, Transaction, named_params};
 use rust_myscript::prelude::*;
 use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Formatter;
 use std::fs::{File, create_dir_all};
@@ -711,10 +711,10 @@ impl<Cache: CratesCache, TP: TimestampProvider> CratesIOClient<Cache, TP> {
             debug!("retrieve body");
             let text = res.text().await?;
 
-            if let Some(etag) = etag {
-                if let Err(e) = self.cache.save(crate_name, &ETag(etag), age, &text).await {
-                    warn!(?e, crate_name, "failed to store cache");
-                }
+            if let Some(etag) = etag
+                && let Err(e) = self.cache.save(crate_name, &ETag(etag), age, &text).await
+            {
+                warn!(?e, crate_name, "failed to store cache");
             }
 
             Result::<String, anyhow::Error>::Ok(text)
@@ -844,11 +844,6 @@ where
 struct CratesIOVersion {
     vers: semver::Version,
     yanked: bool,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Prefs {
-    last_fetch: DateTime<Utc>,
 }
 
 #[cfg(test)]

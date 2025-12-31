@@ -299,7 +299,7 @@ impl Db {
         Ok(Self { conn, table })
     }
 
-    fn tx(&mut self) -> Fallible<DbTx> {
+    fn tx(&mut self) -> Fallible<DbTx<'_>> {
         Ok(DbTx {
             tx: self.conn.transaction().context("conn.tx")?,
             table: &self.table,

@@ -470,6 +470,7 @@ struct ChatCompletionResponseChoice {
 /// - https://platform.openai.com/docs/guides/chat/response-format
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum ChatCompletionResponseChoiceFinishReason {
     Stop,
     Length,

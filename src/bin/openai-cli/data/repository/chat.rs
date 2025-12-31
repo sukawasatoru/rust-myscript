@@ -129,7 +129,7 @@ impl ChatRepositoryImpl {
         })
     }
 
-    fn get_conn(&self) -> Fallible<MutexGuard<Connection>> {
+    fn get_conn(&self) -> Fallible<MutexGuard<'_, Connection>> {
         match self.conn.lock() {
             Ok(data) => Ok(data),
             Err(_) => bail!("failed to get connection"),
