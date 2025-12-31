@@ -16,7 +16,7 @@
 
 use clap::builder::ArgPredicate;
 use clap::{Args, Parser};
-use mdns_sd::ServiceEvent;
+use mdns_sd::{IfKind, ServiceEvent};
 use reqwest::header;
 use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
@@ -261,6 +261,7 @@ async fn retrieve_hue_temperature(hue: OptHue) -> Fallible<(Vec<(String, f64)>, 
     let mdns = mdns_sd::ServiceDaemon::new().context("failed to create mdns daemon")?;
     let receiver = mdns.browse("_hue._tcp.local.")?;
 
+    mdns.disable_interface(IfKind::IPv6)?;
     let client = create_client_builder()
         .danger_accept_invalid_certs(true)
         .build()?;
