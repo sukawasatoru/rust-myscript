@@ -3,6 +3,17 @@ resolver = "3"
 members = [
     "crates/*",
 ]
+exclude = [
+    "crates/async-vs",
+    "crates/checkghossversion",
+    "crates/digest-auth",
+    "crates/iijmio-cli",
+    "crates/mz-conv",
+    "crates/netgear-finder",
+    "crates/openai-cli",
+    "crates/update-letsencrypt-cloudflare",
+    "crates/wimaxtraffic"
+]
 
 [workspace.package]
 version = "0.1.0"
