@@ -7,6 +7,40 @@
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/amazon-dp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/android-tips/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/async-vs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/aterm-finder/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/backuphistory/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cfr/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/checkghossversion/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/comparesha1/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/crate-checker/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/digest-auth/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/filededuplication/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ghignore/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/host-otel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/iijmio-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/lfs-agent-local/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mimes/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mypathhelper/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mysqliteversion/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mz-conv/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/netgear-finder/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/notify-battery/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openai-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/pplx-news/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/pwnedpassword/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/rarr/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/rust-myscript/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/siteupdatechecker/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/temperature-sensor/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/trimhistory/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/unzip-bt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/update-letsencrypt-cloudflare/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/webfile/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/wimaxtraffic/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/yubiotp-checker/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

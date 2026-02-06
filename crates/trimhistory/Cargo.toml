@@ -1,0 +1,22 @@
+[package]
+name = "trimhistory"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+directories = { workspace = true }
+dotenv = { workspace = true }
+rusqlite = { workspace = true }
+rust-myscript = { workspace = true }
+serde = { workspace = true }
+tinytable-rs = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

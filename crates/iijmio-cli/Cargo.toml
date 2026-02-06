@@ -1,0 +1,28 @@
+[package]
+name = "iijmio-cli"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+directories = { workspace = true }
+dotenv = { workspace = true }
+mime = { workspace = true }
+opener = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+rust-myscript = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }

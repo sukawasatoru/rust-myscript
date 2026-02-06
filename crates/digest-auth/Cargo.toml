@@ -1,0 +1,25 @@
+[package]
+name = "digest-auth"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+digest = { workspace = true }
+dotenv = { workspace = true }
+md-5 = { workspace = true }
+rust-myscript = { workspace = true }
+serde = { workspace = true }
+sha-1 = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+warp = { workspace = true }

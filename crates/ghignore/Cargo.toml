@@ -1,0 +1,22 @@
+[package]
+name = "ghignore"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+directories = { workspace = true }
+dotenv = { workspace = true }
+ratatui = { workspace = true }
+reqwest = { workspace = true }
+rust-myscript = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }

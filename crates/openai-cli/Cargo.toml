@@ -1,0 +1,28 @@
+[package]
+name = "openai-cli"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+directories = { workspace = true }
+dotenv = { workspace = true }
+ratatui = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+rust-myscript = { workspace = true, features = ["sqlite"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tinytable-rs = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }

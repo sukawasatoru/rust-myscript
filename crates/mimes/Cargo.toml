@@ -1,0 +1,23 @@
+[package]
+name = "mimes"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[features]
+default = ["tree_magic_mini"]
+tree_magic_mini = ["dep:tree_magic_mini"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+infer = { workspace = true }
+rust-myscript = { workspace = true }
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+tree_magic_mini = { workspace = true, optional = true }

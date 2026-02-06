@@ -1,0 +1,19 @@
+[package]
+name = "yubiotp-checker"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+clap = { workspace = true }
+hmac = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+rust-myscript = { workspace = true }
+sha-1 = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }

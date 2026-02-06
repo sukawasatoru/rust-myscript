@@ -1,0 +1,47 @@
+[package]
+name = "rust-myscript"
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+otel = [
+    "dep:hostname",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-appender-tracing",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:reqwest",
+    "dep:url",
+]
+sqlite = ["dep:rusqlite"]
+
+[build-dependencies]
+anyhow = { workspace = true }
+pkg-config = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+hostname = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-appender-tracing = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+serde = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true, optional = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+num_cpus = { workspace = true }
+tokio = { workspace = true }
