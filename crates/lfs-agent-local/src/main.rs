@@ -1,5 +1,5 @@
 /*
- * Copyright 2024, 2025 sukawasatoru
+ * Copyright 2024, 2025, 2026 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -141,13 +141,7 @@ async fn main() -> Fallible<()> {
             value,
         } => {
             let _guard = otel_logs_endpoint.and_then(|endpoint| {
-                init_otel(
-                    reqwest::Client::new(),
-                    endpoint,
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_BIN_NAME"),
-                )
-                .ok()
+                init_otel(endpoint, env!("CARGO_PKG_NAME"), env!("CARGO_BIN_NAME")).ok()
             });
 
             tokio::task::spawn_blocking(move || {

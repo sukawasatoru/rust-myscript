@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 sukawasatoru
+ * Copyright 2025, 2026 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,7 +134,6 @@ async fn main() -> Fallible<()> {
     let otel_guard = match opt.otel_logs_endpoint {
         Some(endpoint) => {
             let guard = init_otel(
-                client.clone(),
                 endpoint,
                 env!("CARGO_PKG_NAME"),
                 if opt.otel_use_old_service_name {

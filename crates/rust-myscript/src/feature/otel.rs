@@ -1,5 +1,5 @@
 /*
- * Copyright 2024, 2025 sukawasatoru
+ * Copyright 2024, 2025, 2026 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,15 @@
 use crate::prelude::*;
 use opentelemetry::KeyValue;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{LogExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::logs::{BatchLogProcessor, SdkLoggerProvider};
 use opentelemetry_semantic_conventions::SCHEMA_URL;
-use opentelemetry_semantic_conventions::resource::{
-    DEPLOYMENT_ENVIRONMENT, HOST_ARCH, OS_TYPE, SERVICE_INSTANCE_ID, SERVICE_NAME,
+use opentelemetry_semantic_conventions::attribute::{
+    DEPLOYMENT_ENVIRONMENT_NAME, HOST_ARCH, OS_TYPE, SERVICE_INSTANCE_ID, SERVICE_NAME,
     SERVICE_NAMESPACE, SERVICE_VERSION, TELEMETRY_SDK_LANGUAGE, TELEMETRY_SDK_NAME,
     TELEMETRY_SDK_VERSION,
 };
-use reqwest::Client;
 use std::str::FromStr;
 use tracing_subscriber::FmtSubscriber;
 use tracing_subscriber::layer::SubscriberExt;
@@ -34,13 +33,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
 pub fn init_otel(
-    client: Client,
     logs_endpoint: Url,
     namespace: &'static str,
     name: &'static str,
 ) -> Fallible<OtelGuards> {
-    let logger_provider =
-        create_logger_provider(create_resource(namespace, name), client, logs_endpoint)?;
+    let logger_provider = create_logger_provider(create_resource(namespace, name), logs_endpoint)?;
 
     tracing_subscriber::registry()
         .with(match std::env::var("RUST_LOG") {
@@ -71,87 +68,87 @@ fn create_resource(namespace: &'static str, name: &'static str) -> Resource {
         .expect("invalid utf-8")
         .leak();
 
-    Resource::from_schema_url(
-        [
-            KeyValue::new(SERVICE_NAMESPACE, namespace),
-            KeyValue::new(SERVICE_NAME, name),
-            KeyValue::new(SERVICE_INSTANCE_ID, instance_id as &'static str),
-            KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-            KeyValue::new(
-                DEPLOYMENT_ENVIRONMENT,
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                },
-            ),
-            KeyValue::new(TELEMETRY_SDK_LANGUAGE, "rust"),
-            KeyValue::new(TELEMETRY_SDK_NAME, "opentelemetry"),
-            KeyValue::new(TELEMETRY_SDK_VERSION, "0.24.1"),
-            KeyValue::new(
-                OS_TYPE,
-                if cfg!(target_os = "macos") {
-                    "darwin"
-                } else if cfg!(target_os = "dragonfly") {
-                    "dragonflybsd"
-                } else if cfg!(target_os = "windows") {
-                    "windows"
-                } else if cfg!(target_os = "linux") {
-                    "linux"
-                } else if cfg!(target_os = "freebsd") {
-                    "freebsd"
-                } else if cfg!(target_os = "netbsd") {
-                    "netbsd"
-                } else if cfg!(target_os = "openbsd") {
-                    "openbsd"
-                } else {
-                    "none"
-                },
-            ),
-            KeyValue::new(
-                HOST_ARCH,
-                if cfg!(target_arch = "x86") {
-                    "x86"
-                } else if cfg!(target_arch = "x86_64") {
-                    "amd64"
-                } else if cfg!(target_arch = "arm") {
-                    "arm32"
-                } else if cfg!(target_arch = "aarch64") {
-                    "arm64"
-                } else {
-                    "none"
-                },
-            ),
-        ],
-        SCHEMA_URL,
-    )
+    Resource::builder_empty()
+        .with_schema_url(
+            [
+                KeyValue::new(SERVICE_NAMESPACE, namespace),
+                KeyValue::new(SERVICE_NAME, name),
+                KeyValue::new(SERVICE_INSTANCE_ID, instance_id as &'static str),
+                KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+                KeyValue::new(
+                    DEPLOYMENT_ENVIRONMENT_NAME,
+                    if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    },
+                ),
+                KeyValue::new(TELEMETRY_SDK_LANGUAGE, "rust"),
+                KeyValue::new(TELEMETRY_SDK_NAME, "opentelemetry"),
+                KeyValue::new(TELEMETRY_SDK_VERSION, "0.31.0"),
+                KeyValue::new(
+                    OS_TYPE,
+                    if cfg!(target_os = "macos") {
+                        "darwin"
+                    } else if cfg!(target_os = "dragonfly") {
+                        "dragonflybsd"
+                    } else if cfg!(target_os = "windows") {
+                        "windows"
+                    } else if cfg!(target_os = "linux") {
+                        "linux"
+                    } else if cfg!(target_os = "freebsd") {
+                        "freebsd"
+                    } else if cfg!(target_os = "netbsd") {
+                        "netbsd"
+                    } else if cfg!(target_os = "openbsd") {
+                        "openbsd"
+                    } else {
+                        "none"
+                    },
+                ),
+                KeyValue::new(
+                    HOST_ARCH,
+                    if cfg!(target_arch = "x86") {
+                        "x86"
+                    } else if cfg!(target_arch = "x86_64") {
+                        "amd64"
+                    } else if cfg!(target_arch = "arm") {
+                        "arm32"
+                    } else if cfg!(target_arch = "aarch64") {
+                        "arm64"
+                    } else {
+                        "none"
+                    },
+                ),
+            ],
+            SCHEMA_URL,
+        )
+        .build()
 }
 
-fn create_logger_provider(
-    resource: Resource,
-    client: Client,
-    endpoint: Url,
-) -> Fallible<LoggerProvider> {
-    opentelemetry_otlp::new_pipeline()
-        .logging()
+fn create_logger_provider(resource: Resource, endpoint: Url) -> Fallible<SdkLoggerProvider> {
+    let exporter = LogExporter::builder()
+        .with_http()
+        .with_endpoint(endpoint)
+        .build()
+        .context("failed to build log exporter")?;
+
+    let provider = SdkLoggerProvider::builder()
         .with_resource(resource)
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-                .with_http_client(client)
-                .with_endpoint(endpoint),
-        )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
-        .context("failed to install logs exporter")
+        .with_log_processor(BatchLogProcessor::builder(exporter).build())
+        .build();
+
+    Ok(provider)
 }
 
 pub struct OtelGuards {
-    logger: LoggerProvider,
+    logger: SdkLoggerProvider,
 }
 
 impl Drop for OtelGuards {
     fn drop(&mut self) {
-        self.logger.force_flush();
+        if let Err(e) = self.logger.force_flush() {
+            eprintln!("failed to flush logger: {}", e);
+        }
     }
 }
