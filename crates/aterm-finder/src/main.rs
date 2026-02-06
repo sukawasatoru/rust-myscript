@@ -275,9 +275,12 @@ async fn request_aterm(
 }
 
 mod debug_server {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    use axum::routing::post;
+    use axum::{Form, Router};
     use serde::Deserialize;
-    use warp::Filter;
-    use warp::http::header;
+    use std::net::SocketAddr;
 
     #[derive(Debug, Deserialize)]
     enum RequestId {
@@ -294,24 +297,32 @@ mod debug_server {
         req_id: RequestId,
     }
 
+    async fn handle_request(Form(payload): Form<RequestPayload>) -> impl IntoResponse {
+        let body = match payload.req_id {
+            RequestId::ProductNameGet => "PRODUCT_NAME=WG1200HS2\r\n",
+            RequestId::SysModeGet => "SYSTEM_MODE=0\r\n",
+        };
+        (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "text/html"),
+                (header::SERVER, "Aterm(CR)/1.0.0"),
+                (header::PRAGMA, "no-cache"),
+                (header::CACHE_CONTROL, "no-store, no-cache, must-revalidate"),
+                (header::EXPIRES, "0"),
+            ],
+            body,
+        )
+    }
+
     pub async fn run() -> anyhow::Result<()> {
-        let post = warp::post()
-            .and(warp::path!("aterm_httpif.cgi" / "getparamcmd_no_auth"))
-            .and(warp::body::form())
-            .map(|payload: RequestPayload| {
-                let body = match payload.req_id {
-                    RequestId::ProductNameGet => "PRODUCT_NAME=WG1200HS2\r\n",
-                    RequestId::SysModeGet => "SYSTEM_MODE=0\r\n",
-                };
-                warp::http::Response::builder()
-                    .header(header::CONTENT_TYPE, "text/html")
-                    .header(header::SERVER, "Aterm(CR)/1.0.0")
-                    .header(header::PRAGMA, "no-cache")
-                    .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
-                    .header(header::EXPIRES, 0)
-                    .body(body)
-            });
-        warp::serve(post).run(([0, 0, 0, 0], 80)).await;
+        let app = Router::new().route(
+            "/aterm_httpif.cgi/getparamcmd_no_auth",
+            post(handle_request),
+        );
+        let addr = SocketAddr::from(([0, 0, 0, 0], 80));
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
         Ok(())
     }
 }

@@ -78,6 +78,7 @@ tree_magic_mini = "=3.2.2"
 trust-dns-resolver = "=0.23.2"
 url = { version = "=2.5.8", features = ["serde"] }
 uuid = { version = "=1.20.0", features = ["v4"] }
-warp = { version = "=0.3.7", features = ["tls"] }
+axum-server = { version = "=0.8.0", features = ["tls-rustls"] }
+tower-http = { version = "=0.6.8", features = ["fs"] }
 zip = "=7.4.0"
 mockall = "=0.14.0"

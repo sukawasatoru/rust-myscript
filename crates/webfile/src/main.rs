@@ -1,6 +1,10 @@
+use axum::Router;
+use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use rust_myscript::prelude::*;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use tower_http::services::ServeDir;
 
 #[derive(Parser)]
 struct Opt {
@@ -35,17 +39,18 @@ async fn main() -> Fallible<()> {
         }
     };
 
-    let addr = ([0, 0, 0, 0], opt.port);
+    let app = Router::new().fallback_service(ServeDir::new(opt.dir));
+    let addr = SocketAddr::from(([0, 0, 0, 0], opt.port));
 
     if let Some((cert_path, key_path)) = cert_args {
-        warp::serve(warp::fs::dir(opt.dir))
-            .tls()
-            .cert_path(cert_path)
-            .key_path(key_path)
-            .run(addr)
-            .await;
+        let config = RustlsConfig::from_pem_file(cert_path, key_path).await?;
+        axum_server::bind_rustls(addr, config)
+            .serve(app.into_make_service())
+            .await?;
     } else {
-        warp::serve(warp::fs::dir(opt.dir)).run(addr).await;
+        axum_server::bind(addr)
+            .serve(app.into_make_service())
+            .await?;
     }
 
     Ok(())
