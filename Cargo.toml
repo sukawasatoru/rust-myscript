@@ -31,6 +31,7 @@ async-stream = "=0.3.6"
 axum = { version = "=0.8.8", features = ["macros"] }
 base64 = "=0.22.1"
 blake2 = "=0.10.6"
+blake3 = "1.8.3"
 bytes = "=1.11.1"
 chrono = { version = "=0.4.43", features = ["serde"] }
 clap = { version = "=4.5.57", features = ["derive", "env"] }
@@ -43,7 +44,7 @@ hostname = "=0.4.2"
 hmac = "=0.12.1"
 indicatif = "=0.18.3"
 infer = "=0.19.0"
-libc = "=0.2.178"
+libc = "=0.2.182"
 md-5 = "=0.10.6"
 mdns-sd = "=0.17.2"
 mime = "=0.3.17"
@@ -68,8 +69,9 @@ sha2 = "=0.10.9"
 sha3 = "=0.10.8"
 serde_urlencoded = "=0.7.1"
 strum = { version = "=0.27.2", features = ["derive"] }
+tempfile = "=3.26.0"
 tinytable-rs = { git = "https://github.com/sukawasatoru/tinytable-rs.git", tag = "v0.3.2" }
-tokio = { version = "=1.49.0", features = ["fs", "macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "=1.49.0", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
 toml = "=0.9.11"
 tracing = "=0.1.44"
 tracing-appender = "=0.2.4"
@@ -78,7 +80,8 @@ tree_magic_mini = "=3.2.2"
 trust-dns-resolver = "=0.23.2"
 url = { version = "=2.5.8", features = ["serde"] }
 uuid = { version = "=1.20.0", features = ["v4"] }
+walkdir = "2.5.0"
 axum-server = { version = "=0.8.0", features = ["tls-rustls"] }
 tower-http = { version = "=0.6.8", features = ["fs"] }
-zip = "=7.4.0"
+zip = "8.1.0"
 mockall = "=0.14.0"

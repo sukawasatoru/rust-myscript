@@ -27,7 +27,7 @@ jobs:
       - run: cargo build --release
         env:
           IIJMIO_CLI_CLIENT_ID: ${{ secrets.IIJMIO_CLI_CLIENT_ID }}
-      - run: cargo test
+      - run: cargo test --features test-helpers
   rustfmt:
     runs-on: ubuntu-latest
     timeout-minutes: 20

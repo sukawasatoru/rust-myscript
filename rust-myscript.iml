@@ -41,6 +41,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/webfile/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/wimaxtraffic/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/yubiotp-checker/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/filededuplication/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

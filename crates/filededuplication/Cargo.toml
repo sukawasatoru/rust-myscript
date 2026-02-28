@@ -7,15 +7,36 @@ homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 
+[features]
+test-helpers = ["tempfile"]
+
 [dependencies]
 anyhow = { workspace = true }
 blake2 = { workspace = true }
+blake3 = { workspace = true }
 clap = { workspace = true }
 dotenv = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 num_cpus = { workspace = true }
 rust-myscript = { workspace = true }
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[test]]
+name = "remove_file_remove_file_if_master_and_shrink_are_relative"
+required-features = ["test-helpers"]
+
+[[test]]
+name = "remove_file_remove_file_if_master_is_relative"
+required-features = ["test-helpers"]
+
+[[test]]
+name = "remove_file_remove_file_if_shrink_is_relative"
+required-features = ["test-helpers"]
