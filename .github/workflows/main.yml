@@ -29,14 +29,8 @@ jobs:
       - if: ${{ matrix.os == 'windows-latest' }}
         uses: actions/upload-artifact@v7
         with:
-          name: rust-myscript-macos
+          name: rust-myscript-windows
           path: target/release/filededuplication.exe
-          if-no-files-found: error
-      - if: ${{ matrix.os == 'macos-latest' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: rust-myscript-macos
-          path: target/release/filededuplication
           if-no-files-found: error
   rustfmt:
     runs-on: ubuntu-latest
