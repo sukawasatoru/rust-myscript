@@ -8,6 +8,7 @@ exclude = [
     "crates/checkghossversion",
     "crates/digest-auth",
     "crates/iijmio-cli",
+    "crates/lfs-agent-local",
     "crates/mz-conv",
     "crates/netgear-finder",
     "crates/openai-cli",
