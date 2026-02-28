@@ -19,6 +19,7 @@ dotenv = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 num_cpus = { workspace = true }
+rayon = { workspace = true }
 rust-myscript = { workspace = true }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true }

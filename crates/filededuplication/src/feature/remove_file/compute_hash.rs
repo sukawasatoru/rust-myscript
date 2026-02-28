@@ -15,14 +15,16 @@
  */
 use blake3::{Hash, Hasher};
 use rust_myscript::prelude::Fallible;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 pub fn compute_hash(path: &Path) -> Fallible<Hash> {
-    let mut file = BufReader::with_capacity(4 * 1024 * 1024, File::open(path)?);
     let mut hasher = Hasher::new();
-    hasher.update_reader(&mut file)?;
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > 128 * 1024 * 1024 {
+        hasher.update_mmap_rayon(path)?;
+    } else {
+        hasher.update_mmap(path)?;
+    }
     Ok(hasher.finalize())
 }
 

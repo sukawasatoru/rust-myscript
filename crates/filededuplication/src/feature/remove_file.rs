@@ -36,9 +36,13 @@ pub async fn remove_file(
     ensure!(master.is_dir(), "master is not directory");
     ensure!(shrink.is_dir(), "shrink is not directory");
 
-    let semaphore = Arc::new(Semaphore::new(jobs.unwrap_or_else(|| {
-        (available_parallelism().map(|data| data.get()).unwrap_or(1) / 2).max(1)
-    })));
+    let num_threads = jobs.unwrap_or_else(|| available_parallelism().map(|n| n.get()).unwrap_or(1));
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .ok();
+
+    let semaphore = Arc::new(Semaphore::new(num_threads));
     let (tx, mut rx) = channel::<PathBuf>(64);
 
     let walk_target = master.to_owned();
@@ -47,49 +51,77 @@ pub async fn remove_file(
     let mut join_set = JoinSet::new();
 
     while let Some(filepath) = rx.recv().await {
-        let permit = semaphore.clone().acquire_owned().await?;
         let shrink_filepath = shrink.join(filepath.strip_prefix(&master)?);
 
-        if shrink_filepath.exists() {
-            join_set.spawn(async move {
-                let _permit = permit;
+        let master_meta = match tokio::fs::metadata(&filepath).await {
+            Ok(data) => data,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                warn!(path = %filepath.display(), reason = %"not found", "skip");
+                join_set.spawn(std::future::ready(Ok(ShrinkResult::Skip)));
+                continue;
+            }
+            Err(e) => {
+                warn!(path = %filepath.display(), reason = %"metadata", err = ?e, "skip");
+                join_set.spawn(std::future::ready(Ok(ShrinkResult::Skip)));
+                continue;
+            }
+        };
+        let shrink_meta = match tokio::fs::metadata(&shrink_filepath).await {
+            Ok(data) => data,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!(path = %filepath.display(), reason = %"not found", "skip");
+                join_set.spawn(std::future::ready(Ok(ShrinkResult::Skip)));
+                continue;
+            }
+            Err(e) => {
+                warn!(path = %filepath.display(), reason = %"metadata", err = ?e, "skip");
+                join_set.spawn(std::future::ready(Ok(ShrinkResult::Skip)));
+                continue;
+            }
+        };
 
-                let lhs_target = filepath.to_owned();
-                let lhs = tokio::task::spawn_blocking(move || compute_hash(&lhs_target));
-                let rhs_target = shrink_filepath.to_owned();
-                let rhs = tokio::task::spawn_blocking(move || compute_hash(&rhs_target));
-
-                let (lhs_hash, rhs_hash) = tokio::try_join!(lhs, rhs)?;
-                let lhs_hash = lhs_hash
-                    .with_context(|| format!("failed to compute hash: {}", filepath.display()))?;
-                let rhs_hash = rhs_hash.with_context(|| {
-                    format!("failed to compute hash: {}", shrink_filepath.display())
-                })?;
-
-                if lhs_hash == rhs_hash {
-                    if !dry_run {
-                        std::fs::remove_file(&shrink_filepath).with_context(|| {
-                            format!("failed to remove file: {}", shrink_filepath.display())
-                        })?;
-                    }
-                    info!(path = %shrink_filepath.display(), "remove");
-                    Ok(ShrinkResult::Remove)
-                } else {
-                    debug!(path = %shrink_filepath.display(), reason = %"different", "skip");
-                    Ok(ShrinkResult::Skip)
-                }
-            });
-        } else {
-            debug!(path = %filepath.display(), reason = %"not found", "skip");
+        if master_meta.len() != shrink_meta.len() {
+            debug!(path = %shrink_filepath.display(), reason = %"metadata", "skip");
             join_set.spawn(std::future::ready(Ok(ShrinkResult::Skip)));
+            continue;
         }
+
+        let permit = semaphore.clone().acquire_owned().await?;
+        join_set.spawn(async move {
+            let _permit = permit;
+
+            let lhs_target = filepath.to_owned();
+            let lhs = tokio::task::spawn_blocking(move || compute_hash(&lhs_target));
+            let rhs_target = shrink_filepath.to_owned();
+            let rhs = tokio::task::spawn_blocking(move || compute_hash(&rhs_target));
+
+            let (lhs_hash, rhs_hash) = tokio::try_join!(lhs, rhs)?;
+            let lhs_hash = lhs_hash
+                .with_context(|| format!("failed to compute hash: {}", filepath.display()))?;
+            let rhs_hash = rhs_hash.with_context(|| {
+                format!("failed to compute hash: {}", shrink_filepath.display())
+            })?;
+
+            if lhs_hash == rhs_hash {
+                if !dry_run {
+                    std::fs::remove_file(&shrink_filepath).with_context(|| {
+                        format!("failed to remove file: {}", shrink_filepath.display())
+                    })?;
+                }
+                info!(path = %shrink_filepath.display(), "remove");
+                Ok(ShrinkResult::Remove)
+            } else {
+                debug!(path = %shrink_filepath.display(), reason = %"different", "skip");
+                Ok(ShrinkResult::Skip)
+            }
+        });
     }
 
     let mut errors = vec![];
 
-    if let Err(e) = walker.await.context("walk directory failed") {
-        warn!(?e, "walk directory failed");
-        errors.push(e);
+    if let Err(err) = walker.await.context("walk directory failed") {
+        warn!(?err, "walk directory failed");
+        errors.push(err);
     }
 
     let mut count_all = 0u32;
@@ -101,7 +133,7 @@ pub async fn remove_file(
         let result = match result.context("consumer thread panicked") {
             Ok(data) => data,
             Err(e) => {
-                warn!(?e, "consumer thread panicked");
+                warn!(err = ?e, "consumer thread panicked");
                 errors.push(e);
                 continue;
             }
@@ -128,7 +160,7 @@ pub async fn remove_file(
     if !errors.is_empty() {
         warn!("error:");
         for entry in errors {
-            warn!(?entry);
+            warn!(err = ?entry);
         }
         bail!("all file proceeded but some errors occurred");
     }
@@ -231,11 +263,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skip_if_different_size() {
+        let temp_dir1 = create_target(&[File("file")]);
+        std::fs::write(temp_dir1.path().join("file"), "longer content").unwrap();
+
+        let temp_dir2 = create_target(&[File("file")]);
+
+        let (_guard, log_writer) = init_tracing();
+
+        remove_file(
+            false,
+            None,
+            temp_dir1.path().to_owned(),
+            temp_dir2.path().to_owned(),
+        )
+        .await
+        .unwrap();
+
+        let actual_messages = log_writer.remove();
+        let mut actual_messages = actual_messages.trim_end().split('\n');
+        assert_eq!(
+            format!(
+                "skip path={} reason=metadata",
+                temp_dir2.path().join("file").display(),
+            ),
+            actual_messages.next().unwrap(),
+        );
+        assert_eq!(
+            "complete all=1 remove=0 skip=1 error=0",
+            actual_messages.next().unwrap(),
+        );
+        assert!(actual_messages.next().is_none());
+
+        assert!(temp_dir1.path().join("file").exists());
+        assert!(temp_dir2.path().join("file").exists());
+    }
+
+    #[tokio::test]
     async fn skip_if_different_hash() {
         let temp_dir1 = create_target(&[File("file")]);
         std::fs::write(temp_dir1.path().join("file"), "different").unwrap();
 
         let temp_dir2 = create_target(&[File("file")]);
+        std::fs::write(temp_dir2.path().join("file"), "notsame!!").unwrap();
 
         let (_guard, log_writer) = init_tracing();
 
