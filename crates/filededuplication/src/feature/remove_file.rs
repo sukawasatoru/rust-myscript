@@ -37,10 +37,6 @@ pub async fn remove_file(
     ensure!(shrink.is_dir(), "shrink is not directory");
 
     let num_threads = jobs.unwrap_or_else(|| available_parallelism().map(|n| n.get()).unwrap_or(1));
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build_global()
-        .ok();
 
     let semaphore = Arc::new(Semaphore::new(num_threads));
     let (tx, mut rx) = channel::<PathBuf>(64);
