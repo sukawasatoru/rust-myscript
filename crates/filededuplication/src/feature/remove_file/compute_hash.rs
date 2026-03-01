@@ -21,19 +21,11 @@ use std::path::Path;
 
 pub fn compute_hash(path: &Path) -> Fallible<Hash> {
     let mut hasher = Hasher::new();
-    let metadata = std::fs::metadata(path)?;
-    let file_size = metadata.len();
-
-    let threshold = 4 * 1024 * 1024;
-
-    if file_size > threshold {
-        hasher.update_mmap(path)?;
-    } else {
-        // reduce TLB shootdown between 16KiB..=4MiB.
-        // maybe_mmap_file use File.read if `file_size < 16 * 1024`.
-        let mut file = BufReader::with_capacity(threshold as usize, File::open(path)?);
-        hasher.update_reader(&mut file)?;
-    }
+    // use update_reader avoiding TLB shootdown.
+    hasher.update_reader(&mut BufReader::with_capacity(
+        4 * 1024 * 1024,
+        File::open(path)?,
+    ))?;
     Ok(hasher.finalize())
 }
 
