@@ -20,10 +20,14 @@ use std::path::Path;
 pub fn compute_hash(path: &Path) -> Fallible<Hash> {
     let mut hasher = Hasher::new();
     let metadata = std::fs::metadata(path)?;
-    if metadata.len() > 128 * 1024 * 1024 {
+    let file_size = metadata.len();
+    if file_size >= 128 * 1024 {
         hasher.update_mmap_rayon(path)?;
-    } else {
+    } else if file_size > 16 * 1024 {
         hasher.update_mmap(path)?;
+    } else {
+        let data = std::fs::read(path)?;
+        hasher.update(&data);
     }
     Ok(hasher.finalize())
 }
