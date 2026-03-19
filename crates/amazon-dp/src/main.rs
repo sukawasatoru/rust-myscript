@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 sukawasatoru
+ * Copyright 2024, 2026 sukawasatoru
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,50 @@
  */
 
 use clap::{Parser, ValueHint};
+use rmcp::handler::server::tool::ToolRouter;
+use rmcp::handler::server::wrapper::Parameters;
+use rmcp::model::{Implementation, ServerInfo};
+use rmcp::schemars::{self, JsonSchema};
+use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use rust_myscript::prelude::*;
+use serde::Deserialize;
+use tracing::Level;
 use url::Url;
 
 /// Create simple URL for amazon.
 #[derive(Parser)]
 struct Opt {
+    /// Launch MCP Server.
+    #[arg(long)]
+    mcp: bool,
+
     /// Amazon URL.
-    #[arg(value_hint = ValueHint::Url)]
-    input: Url,
+    #[arg(value_hint = ValueHint::Url, required_unless_present = "mcp")]
+    input: Option<Url>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .with_writer(std::io::stderr)
+        .init();
+
     let opt = Opt::parse();
-    match create_short_url(&opt.input) {
-        Ok(short_url) => println!("{short_url}"),
-        Err(_) => println!("{}", opt.input),
+
+    match opt {
+        Opt { mcp: true, .. } => {
+            run_mcp_server().await;
+        }
+        Opt {
+            input: Some(input), ..
+        } => match create_short_url(&input) {
+            Ok(short_url) => println!("{short_url}"),
+            Err(_) => println!("{}", input),
+        },
+        Opt { input: None, .. } => {
+            unreachable!("input is required unless --mcp is specified");
+        }
     }
 }
 
@@ -58,6 +86,68 @@ fn create_short_url(input: &Url) -> Fallible<Url> {
     }
 
     bail!("unsupported format")
+}
+
+struct McpServer {
+    tool_router: ToolRouter<Self>,
+}
+
+#[tool_router]
+impl McpServer {
+    fn new() -> Self {
+        Self {
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Amazon の商品 URL を短縮する。商品名やクエリパラメータを除去し /dp/{ASIN} のみの URL を返す
+    #[tool(annotations(read_only_hint = true, open_world_hint = false))]
+    async fn amazon_dp(&self, params: Parameters<AmazonDpParams>) -> Result<String, String> {
+        match Url::parse(&params.0.url) {
+            Ok(url) => match create_short_url(&url) {
+                Ok(short) => Ok(short.to_string()),
+                Err(e) => {
+                    warn!(?e, "unsupported format");
+                    Err(e.to_string())
+                }
+            },
+            Err(e) => {
+                warn!(?e, "invalid url");
+                Err(format!("invalid url: {e}"))
+            }
+        }
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for McpServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::default().with_server_info(Implementation::new(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+        ))
+    }
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct AmazonDpParams {
+    /// Amazon の商品 URL
+    url: String,
+}
+
+async fn run_mcp_server() {
+    let server = McpServer::new().serve(rmcp::transport::stdio());
+    let running = match server.await {
+        Ok(running) => running,
+        Err(e) => {
+            error!(?e, "failed to initialize MCP server");
+            return;
+        }
+    };
+
+    if let Err(e) = running.waiting().await {
+        error!(?e, "MCP server task panicked");
+    }
 }
 
 #[cfg(test)]
