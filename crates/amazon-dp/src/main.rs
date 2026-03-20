@@ -154,6 +154,10 @@ async fn run_mcp_server() {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    use rmcp::model::CallToolRequestParams;
+    use rmcp::service::RunningService;
+    use rmcp::{ClientHandler, RoleClient, ServiceExt};
+    use serde_json::json;
 
     #[test]
     fn struct_opt() {
@@ -214,5 +218,104 @@ mod tests {
             actual,
             Url::parse("https://www.amazon.co.jp/dp/B0BM46DFH1").unwrap(),
         );
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct DummyClientHandler;
+    impl ClientHandler for DummyClientHandler {}
+
+    struct McpTestContext {
+        client: RunningService<RoleClient, DummyClientHandler>,
+        server_handle: tokio::task::JoinHandle<anyhow::Result<()>>,
+    }
+
+    impl McpTestContext {
+        async fn new() -> Fallible<Self> {
+            let (server_transport, client_transport) = tokio::io::duplex(4096);
+            let server_handle = tokio::spawn(async move {
+                McpServer::new()
+                    .serve(server_transport)
+                    .await?
+                    .waiting()
+                    .await?;
+                anyhow::Ok(())
+            });
+            let client = DummyClientHandler.serve(client_transport).await?;
+            Ok(Self {
+                client,
+                server_handle,
+            })
+        }
+    }
+
+    impl Drop for McpTestContext {
+        fn drop(&mut self) {
+            self.server_handle.abort();
+            self.client.cancellation_token().cancel();
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_amazon_dp_tool_short_url() -> Fallible<()> {
+        let ctx = McpTestContext::new().await?;
+        let result = ctx
+            .client
+            .call_tool(CallToolRequestParams::new("amazon_dp").with_arguments(
+                json!({ "url": "https://www.amazon.co.jp/Nintendo-Switch/dp/B0BM46DFH1/ref=sr_1_3?keywords=Nintendo+switch" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ))
+            .await?;
+
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.raw.as_text())
+            .map(|t| t.text.to_owned());
+
+        assert_eq!(
+            text.as_deref(),
+            Some("https://www.amazon.co.jp/dp/B0BM46DFH1")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_amazon_dp_tool_invalid_url() -> Fallible<()> {
+        let ctx = McpTestContext::new().await?;
+        let result = ctx
+            .client
+            .call_tool(
+                CallToolRequestParams::new("amazon_dp").with_arguments(
+                    json!({ "url": "not-a-valid-url" })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await?;
+
+        assert!(result.is_error.unwrap_or(false), "expected error result");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_amazon_dp_tool_no_dp_segment() -> Fallible<()> {
+        let ctx = McpTestContext::new().await?;
+        let result = ctx
+            .client
+            .call_tool(
+                CallToolRequestParams::new("amazon_dp").with_arguments(
+                    json!({ "url": "https://www.amazon.co.jp/s?k=Nintendo+switch" })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await?;
+
+        assert!(result.is_error.unwrap_or(false), "expected error result");
+        Ok(())
     }
 }

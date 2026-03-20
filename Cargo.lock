@@ -53,6 +53,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "amazon-dp"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "rmcp",
  "rust-myscript",
@@ -3018,6 +3019,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
 ]
