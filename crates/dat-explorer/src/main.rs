@@ -266,9 +266,17 @@ impl McpServer {
 #[tool_handler]
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(
-            Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-        )
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(
+                "5ch の .dat ファイルを読み取る MCP サーバーです。\
+                各ファイルは一つのスレッドに対応し、スレ番号（例: \"630\"）で識別します。\
+                典型的な使い方: search_posts でキーワード検索してヒットしたスレ・レスを特定したり、\
+                read_posts で該当スレのレスを読んで文脈を把握する。",
+            )
     }
 }
 
