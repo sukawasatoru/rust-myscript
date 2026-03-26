@@ -30,6 +30,8 @@ pub struct SearchPostsParams {
     pub ids: Vec<String>,
     /// Approximate upper limit for cumulative text characters of hits. 0 = no limit.
     pub max_body_chars: usize,
+    /// When true, the safety cap (MAX_BODY_CHARS_LIMIT) is not applied.
+    pub disable_body_limit: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +162,12 @@ pub fn search_posts(dat_dir: &Path, params: &SearchPostsParams) -> Fallible<Sear
     }
 
     // Cumulative cutoff by max_body_chars
-    let omitted_count = dat::apply_cutoff(&mut hits, params.max_body_chars, |h| h.response_chars());
+    let omitted_count = dat::apply_cutoff(
+        &mut hits,
+        params.max_body_chars,
+        params.disable_body_limit,
+        |h| h.response_chars(),
+    );
 
     let total_hits = hits.len() + omitted_count;
     Ok(SearchPostsResult {

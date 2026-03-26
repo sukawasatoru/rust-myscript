@@ -30,26 +30,37 @@ pub const MAX_BODY_CHARS_LIMIT: usize = 50000;
 /// Estimated JSON structural overhead per row (`[`, `]`, `"`, `,`, etc.).
 pub const ROW_OVERHEAD: usize = 30;
 
-/// Returns the effective max_body_chars value. Clamps to the limit when 0 or exceeding.
-fn effective_max_body_chars(value: usize) -> usize {
-    if value == 0 || value > MAX_BODY_CHARS_LIMIT {
-        MAX_BODY_CHARS_LIMIT
+/// Returns the effective max_body_chars value.
+/// When `disable_limit` is false, clamps to MAX_BODY_CHARS_LIMIT when 0 or exceeding.
+/// When `disable_limit` is true, returns the value as-is (0 means no limit).
+fn effective_max_body_chars(value: usize, disable_limit: bool) -> Option<usize> {
+    if disable_limit {
+        if value == 0 { None } else { Some(value) }
+    } else if value == 0 || value > MAX_BODY_CHARS_LIMIT {
+        Some(MAX_BODY_CHARS_LIMIT)
     } else {
-        value
+        Some(value)
     }
 }
 
 /// Truncates items when cumulative character count exceeds the limit. Returns the omitted count.
 /// `char_count` returns the text character count for each item. ROW_OVERHEAD is added internally.
 ///
+/// When `disable_body_limit` is true, the safety cap (MAX_BODY_CHARS_LIMIT) is not applied;
+/// `max_body_chars=0` means truly unlimited.
+///
 /// Uses soft overflow: the item that *causes* the limit to be exceeded is still included,
 /// so every call returns at least one item. Only items after the overflow point are omitted.
 pub fn apply_cutoff<T>(
     items: &mut Vec<T>,
     max_body_chars: usize,
+    disable_body_limit: bool,
     char_count: impl Fn(&T) -> usize,
 ) -> usize {
-    let effective_limit = effective_max_body_chars(max_body_chars);
+    let effective_limit = match effective_max_body_chars(max_body_chars, disable_body_limit) {
+        Some(limit) => limit,
+        None => return 0,
+    };
     let mut accum = 0usize;
     let mut cutoff_idx = None;
     for (i, item) in items.iter().enumerate() {

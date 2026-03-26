@@ -32,6 +32,8 @@ pub struct ReadPostsParams {
     /// Whether the name field is included in the response.
     /// Affects cutoff calculation: excluded name chars are not counted.
     pub include_name: bool,
+    /// When true, the safety cap (MAX_BODY_CHARS_LIMIT) is not applied.
+    pub disable_body_limit: bool,
 }
 
 pub struct ReadPostsResult {
@@ -86,9 +88,12 @@ pub fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPost
 
     // Cumulative cutoff by max_body_chars
     let include_name = params.include_name;
-    let omitted_count = dat::apply_cutoff(&mut posts, params.max_body_chars, |p| {
-        p.response_chars(include_name)
-    });
+    let omitted_count = dat::apply_cutoff(
+        &mut posts,
+        params.max_body_chars,
+        params.disable_body_limit,
+        |p| p.response_chars(include_name),
+    );
 
     Ok(ReadPostsResult {
         posts,

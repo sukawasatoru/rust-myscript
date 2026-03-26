@@ -33,6 +33,11 @@ struct Opt {
     /// Directory containing dat files
     #[arg(value_hint = ValueHint::DirPath)]
     dat_dir: PathBuf,
+
+    /// max_body_chars の上限キャップ (50000) を無効化する。
+    /// LM Studio 以外のクライアントで使用する場合に指定する。
+    #[arg(long)]
+    disable_body_limit: bool,
 }
 
 #[tokio::main]
@@ -43,7 +48,7 @@ async fn main() {
         .init();
 
     let opt = Opt::parse();
-    run_mcp_server(opt.dat_dir).await;
+    run_mcp_server(opt.dat_dir, opt.disable_body_limit).await;
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -124,14 +129,16 @@ struct SearchPostsResponse {
 struct McpServer {
     tool_router: ToolRouter<Self>,
     dat_dir: PathBuf,
+    disable_body_limit: bool,
 }
 
 #[tool_router]
 impl McpServer {
-    fn new(dat_dir: PathBuf) -> Self {
+    fn new(dat_dir: PathBuf, disable_body_limit: bool) -> Self {
         Self {
             tool_router: Self::tool_router(),
             dat_dir,
+            disable_body_limit,
         }
     }
 
@@ -150,6 +157,7 @@ impl McpServer {
                 res_nums: p.res_nums.clone(),
                 max_body_chars: p.max_body_chars,
                 include_name: p.include_name,
+                disable_body_limit: self.disable_body_limit,
             },
         )
         .map_err(|e| e.to_string())?;
@@ -214,6 +222,7 @@ impl McpServer {
                 range: p.range.clone(),
                 ids: p.ids.clone(),
                 max_body_chars: p.max_body_chars,
+                disable_body_limit: self.disable_body_limit,
             },
         )
         .map_err(|e| e.to_string())?;
@@ -263,8 +272,8 @@ impl ServerHandler for McpServer {
     }
 }
 
-async fn run_mcp_server(dat_dir: PathBuf) {
-    let server = McpServer::new(dat_dir).serve(rmcp::transport::stdio());
+async fn run_mcp_server(dat_dir: PathBuf, disable_body_limit: bool) {
+    let server = McpServer::new(dat_dir, disable_body_limit).serve(rmcp::transport::stdio());
     let running = match server.await {
         Ok(running) => running,
         Err(e) => {
@@ -337,7 +346,7 @@ mod tests {
         async fn new(dat_dir: PathBuf) -> Fallible<Self> {
             let (server_transport, client_transport) = tokio::io::duplex(4096);
             let server_handle = tokio::spawn(async move {
-                McpServer::new(dat_dir)
+                McpServer::new(dat_dir, false)
                     .serve(server_transport)
                     .await?
                     .waiting()
