@@ -302,6 +302,16 @@ mod tests {
         Opt::command().debug_assert();
     }
 
+    #[test]
+    fn get_info_has_tools_capability() {
+        let server = McpServer::new(PathBuf::new(), false);
+        let info = server.get_info();
+        assert!(
+            info.capabilities.tools.is_some(),
+            "ServerCapabilities should have tools capability"
+        );
+    }
+
     // NOTE: dat::test_helpers is behind #[cfg(test)] + tempfile (dev-dep),
     // so it cannot be referenced from the binary crate. Test data is defined independently.
     struct TestDirs {
