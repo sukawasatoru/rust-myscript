@@ -29,17 +29,18 @@ pub struct DatPost {
 impl DatPost {
     /// Returns the estimated character count for response fields.
     /// Only counts fields actually included in the response.
-    pub fn response_chars(&self, include_name: bool) -> usize {
+    pub fn response_chars(&self, include_name: bool, include_id: bool) -> usize {
         let name_chars = if include_name {
             self.name.chars().count()
         } else {
             0
         };
-        name_chars
-            + self.datetime.chars().count()
-            + self.id.chars().count()
-            + self.body.chars().count()
-            + self.title.as_deref().map_or(0, |t| t.chars().count())
+        let id_chars = if include_id {
+            self.id.chars().count()
+        } else {
+            0
+        };
+        name_chars + self.datetime.chars().count() + id_chars + self.body.chars().count()
     }
 }
 

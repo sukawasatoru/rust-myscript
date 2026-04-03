@@ -86,6 +86,8 @@ static RE_HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").un
 static URL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"h?ttps?://[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+").unwrap());
 
+static RE_NUMERIC_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&#([0-9]+);").unwrap());
+
 static RE_ANCHOR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&gt;&gt;(\d+)").unwrap());
 
 /// 5ch infrastructure and ancillary service hosts to exclude from URL extraction.
@@ -104,12 +106,15 @@ static EXCLUDED_HOSTS: &[&str] = &[
 pub fn clean_body(raw_body: &str) -> String {
     let s = RE_BR.replace_all(raw_body, "\n");
     let s = RE_HTML_TAG.replace_all(&s, "");
-    s.replace("&gt;", ">")
-        .replace("&lt;", "<")
-        .replace("&amp;", "&")
-        .replace("&#039;", "'")
-        .trim()
-        .to_string()
+    let s = s.replace("&gt;", ">").replace("&lt;", "<");
+    let s = RE_NUMERIC_REF.replace_all(&s, |caps: &regex::Captures| {
+        caps[1]
+            .parse::<u32>()
+            .ok()
+            .and_then(char::from_u32)
+            .map_or_else(|| caps[0].to_string(), |c| c.to_string())
+    });
+    s.replace("&amp;", "&").trim().to_string()
 }
 
 /// Splits a datetime-ID field (`"2026/03/13(金) 10:38:56.82 ID:abc"`) into datetime and ID.
@@ -117,7 +122,8 @@ pub fn parse_datetime_id(raw: &str) -> (String, String) {
     let trimmed = raw.trim();
     if let Some(idx) = trimmed.find(" ID:") {
         let datetime = trimmed[..idx].trim().to_string();
-        let id = trimmed[idx + 1..].trim().to_string();
+        // skip " ID:" prefix (4 chars) to extract the bare ID
+        let id = trimmed[idx + 4..].trim().to_string();
         (datetime, id)
     } else {
         (trimmed.to_string(), String::new())
@@ -426,6 +432,22 @@ mod tests {
     }
 
     #[test]
+    fn clean_body_numeric_ref() {
+        assert_eq!(clean_body("&#039;hello&#039;"), "'hello'");
+        assert_eq!(clean_body("&#34;quoted&#34;"), "\"quoted\"");
+    }
+
+    #[test]
+    fn clean_body_numeric_ref_unicode() {
+        assert_eq!(clean_body("&#12354;"), "あ");
+    }
+
+    #[test]
+    fn clean_body_numeric_ref_invalid() {
+        assert_eq!(clean_body("&#99999999;"), "&#99999999;");
+    }
+
+    #[test]
     fn clean_body_strip_tags() {
         assert_eq!(
             clean_body("<b>bold</b> <a href=\"x\">link</a>"),
@@ -442,7 +464,7 @@ mod tests {
     fn parse_datetime_id_normal() {
         let (dt, id) = parse_datetime_id("2026/03/13(金) 10:38:56.82 ID:miLVJ0Bt0");
         assert_eq!(dt, "2026/03/13(金) 10:38:56.82");
-        assert_eq!(id, "ID:miLVJ0Bt0");
+        assert_eq!(id, "miLVJ0Bt0");
     }
 
     #[test]
@@ -460,7 +482,7 @@ mod tests {
         assert_eq!(post.name, "名前");
         assert_eq!(post.mail, "sage");
         assert_eq!(post.datetime, "2026/03/13(金) 10:38:56.82");
-        assert_eq!(post.id, "ID:abc");
+        assert_eq!(post.id, "abc");
         assert_eq!(post.body, "本文テスト");
         assert_eq!(post.title.as_deref(), Some("スレタイ"));
     }

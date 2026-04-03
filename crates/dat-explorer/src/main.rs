@@ -67,6 +67,12 @@ struct ReadPostsToolParams {
     /// true の場合 name カラムを含める（デフォルト: false）
     #[serde(default)]
     include_name: bool,
+    /// true の場合 id カラムを含める（デフォルト: false）
+    #[serde(default)]
+    include_id: bool,
+    /// true の場合 urls カラムを含める（デフォルト: false）
+    #[serde(default)]
+    include_urls: bool,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -86,12 +92,15 @@ struct SearchPostsToolParams {
     /// ヒット本文の合計文字数の目安上限。超えたレスまで含めて打ち切る。0 = 制限なし（デフォルト）
     #[serde(default)]
     max_body_chars: usize,
+    /// true の場合 id カラムを含める（デフォルト: false）
+    #[serde(default)]
+    include_id: bool,
 }
 
 #[derive(Serialize, JsonSchema)]
 struct ReadPostsResponse {
     file_info: FileInfoEntry,
-    /// カラム名の一覧: ["res_num", "name", "datetime", "id", "body", "title", "ref_count"]
+    /// カラム名の一覧: ["res_num", "name", "datetime", "id", "body", "ref_count", "urls"] (name, id, urls は引数による)
     columns: Vec<String>,
     /// 各レスの値を columns の順に並べた配列
     rows: Vec<Vec<serde_json::Value>>,
@@ -117,7 +126,7 @@ struct FileInfoEntry {
 struct SearchPostsResponse {
     total_hits: usize,
     searched_files: Vec<String>,
-    /// カラム名の一覧: ["file", "res_num", "datetime", "id", "body", "urls", "matched_keywords", "ref_count"]
+    /// カラム名の一覧: ["file", "res_num", "datetime", "id", "body", "urls", "ref_count"] (id は引数による)
     columns: Vec<String>,
     /// 各ヒットの値を columns の順に並べた配列
     rows: Vec<Vec<serde_json::Value>>,
@@ -157,34 +166,47 @@ impl McpServer {
                 res_nums: p.res_nums.clone(),
                 max_body_chars: p.max_body_chars,
                 include_name: p.include_name,
+                include_id: p.include_id,
+                include_urls: p.include_urls,
                 disable_body_limit: self.disable_body_limit,
             },
         )
         .map_err(|e| e.to_string())?;
 
         let ref_counts = result.ref_counts;
+        let urls = result.urls;
         let include_name = p.include_name;
-        let mut columns = vec!["res_num".into(), "datetime".into(), "id".into()];
+        let include_id = p.include_id;
+        let include_urls = p.include_urls;
+        let mut columns = vec!["res_num".into(), "datetime".into()];
         if include_name {
             columns.insert(1, "name".into());
         }
-        columns.extend(["body".into(), "title".into(), "ref_count".into()]);
+        if include_id {
+            columns.push("id".into());
+        }
+        columns.extend(["body".into(), "ref_count".into()]);
+        if include_urls {
+            columns.push("urls".into());
+        }
         let rows = result
             .posts
             .into_iter()
             .map(|post| {
                 let ref_count = ref_counts.get(&post.res_num).copied().unwrap_or(0);
+                let post_urls = urls.get(&post.res_num);
                 let mut row = vec![json!(post.res_num)];
                 if include_name {
                     row.push(json!(post.name));
                 }
-                row.extend([
-                    json!(post.datetime),
-                    json!(post.id),
-                    json!(post.body),
-                    json!(post.title),
-                    json!(ref_count),
-                ]);
+                row.push(json!(post.datetime));
+                if include_id {
+                    row.push(json!(post.id));
+                }
+                row.extend([json!(post.body), json!(ref_count)]);
+                if include_urls {
+                    row.push(json!(post_urls));
+                }
                 row
             })
             .collect();
@@ -222,35 +244,28 @@ impl McpServer {
                 range: p.range.clone(),
                 ids: p.ids.clone(),
                 max_body_chars: p.max_body_chars,
+                include_id: p.include_id,
                 disable_body_limit: self.disable_body_limit,
             },
         )
         .map_err(|e| e.to_string())?;
 
-        let columns = vec![
-            "file".into(),
-            "res_num".into(),
-            "datetime".into(),
-            "id".into(),
-            "body".into(),
-            "urls".into(),
-            "matched_keywords".into(),
-            "ref_count".into(),
-        ];
+        let include_id = p.include_id;
+        let mut columns = vec!["file".into(), "res_num".into(), "datetime".into()];
+        if include_id {
+            columns.push("id".into());
+        }
+        columns.extend(["body".into(), "urls".into(), "ref_count".into()]);
         let rows = result
             .hits
             .into_iter()
             .map(|h| {
-                vec![
-                    json!(h.file),
-                    json!(h.res_num),
-                    json!(h.datetime),
-                    json!(h.id),
-                    json!(h.body),
-                    json!(h.urls),
-                    json!(h.matched_keywords),
-                    json!(h.ref_count),
-                ]
+                let mut row = vec![json!(h.file), json!(h.res_num), json!(h.datetime)];
+                if include_id {
+                    row.push(json!(h.id));
+                }
+                row.extend([json!(h.body), json!(h.urls), json!(h.ref_count)]);
+                row
             })
             .collect();
         Ok(Json(SearchPostsResponse {
@@ -433,6 +448,39 @@ mod tests {
         assert!(parsed["columns"].as_array().unwrap().len() > 0);
         assert_eq!(parsed["file_info"]["thread_num"], 630);
         assert!(parsed["file_info"]["date_range"].is_string());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_read_posts_include_urls() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+
+        let parsed = ctx
+            .call(
+                "read_posts",
+                json!({ "file": "630", "range": "1-1", "include_urls": true }),
+            )
+            .await?;
+        let columns = parsed["columns"].as_array().unwrap();
+        assert!(columns.iter().any(|c| c == "urls"));
+        let row = &parsed["rows"][0];
+        let urls_idx = columns.iter().position(|c| c == "urls").unwrap();
+        let urls = row[urls_idx].as_array().unwrap();
+        assert!(!urls.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_read_posts_no_urls_by_default() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+
+        let parsed = ctx
+            .call("read_posts", json!({ "file": "630", "range": "1-1" }))
+            .await?;
+        let columns = parsed["columns"].as_array().unwrap();
+        assert!(!columns.iter().any(|c| c == "urls"));
         Ok(())
     }
 

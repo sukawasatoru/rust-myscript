@@ -30,6 +30,9 @@ pub struct SearchPostsParams {
     pub ids: Vec<String>,
     /// Approximate upper limit for cumulative text characters of hits. 0 = no limit.
     pub max_body_chars: usize,
+    /// Whether the id field is included in the response.
+    /// Affects cutoff calculation: excluded id chars are not counted.
+    pub include_id: bool,
     /// When true, the safety cap (MAX_BODY_CHARS_LIMIT) is not applied.
     pub disable_body_limit: bool,
 }
@@ -42,24 +45,23 @@ pub struct SearchHit {
     pub id: String,
     pub body: String,
     pub urls: Vec<String>,
-    pub matched_keywords: Vec<String>,
     /// Reference count for this post (>>N anchor aggregation)
     pub ref_count: usize,
 }
 
 impl SearchHit {
     /// Returns the estimated character count for response fields.
-    pub fn response_chars(&self) -> usize {
+    pub fn response_chars(&self, include_id: bool) -> usize {
+        let id_chars = if include_id {
+            self.id.chars().count()
+        } else {
+            0
+        };
         self.file.chars().count()
             + self.datetime.chars().count()
-            + self.id.chars().count()
+            + id_chars
             + self.body.chars().count()
             + self.urls.iter().map(|u| u.chars().count()).sum::<usize>()
-            + self
-                .matched_keywords
-                .iter()
-                .map(|k| k.chars().count())
-                .sum::<usize>()
     }
 }
 
@@ -155,18 +157,18 @@ pub fn search_posts(dat_dir: &Path, params: &SearchPostsParams) -> Fallible<Sear
                 id: post.id,
                 body: post.body,
                 urls,
-                matched_keywords: matched,
                 ref_count,
             });
         }
     }
 
     // Cumulative cutoff by max_body_chars
+    let include_id = params.include_id;
     let omitted_count = dat::apply_cutoff(
         &mut hits,
         params.max_body_chars,
         params.disable_body_limit,
-        |h| h.response_chars(),
+        |h| h.response_chars(include_id),
     );
 
     let total_hits = hits.len() + omitted_count;
@@ -196,11 +198,6 @@ mod tests {
         .unwrap();
         assert_eq!(result.total_hits, 1);
         assert_eq!(result.hits[0].res_num, 2);
-        assert!(
-            result.hits[0]
-                .matched_keywords
-                .contains(&"Tool v2\\.5".into())
-        );
     }
 
     #[test]

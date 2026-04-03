@@ -17,7 +17,7 @@
 use crate::dat;
 use crate::model::{DatFileInfo, DatPost};
 use rust_myscript::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 #[derive(Default)]
@@ -32,6 +32,11 @@ pub struct ReadPostsParams {
     /// Whether the name field is included in the response.
     /// Affects cutoff calculation: excluded name chars are not counted.
     pub include_name: bool,
+    /// Whether the id field is included in the response.
+    /// Affects cutoff calculation: excluded id chars are not counted.
+    pub include_id: bool,
+    /// Whether to extract and include URLs from post bodies.
+    pub include_urls: bool,
     /// When true, the safety cap (MAX_BODY_CHARS_LIMIT) is not applied.
     pub disable_body_limit: bool,
 }
@@ -41,6 +46,8 @@ pub struct ReadPostsResult {
     pub file_info: DatFileInfo,
     /// Post number -> reference count (>>N anchor aggregation)
     pub ref_counts: HashMap<usize, usize>,
+    /// Post number -> extracted URLs (only populated when include_urls is true)
+    pub urls: HashMap<usize, Vec<String>>,
     /// Number of posts omitted due to max_body_chars exceeded
     pub omitted_count: usize,
 }
@@ -86,19 +93,43 @@ pub fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPost
 
     let ref_counts = dat::count_references(&lines);
 
+    // Extract URLs when requested (before cutoff so char counts are accurate)
+    let urls: HashMap<usize, Vec<String>> = if params.include_urls {
+        posts
+            .iter()
+            .map(|p| (p.res_num, dat::extract_urls(&p.body)))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
     // Cumulative cutoff by max_body_chars
     let include_name = params.include_name;
+    let include_id = params.include_id;
     let omitted_count = dat::apply_cutoff(
         &mut posts,
         params.max_body_chars,
         params.disable_body_limit,
-        |p| p.response_chars(include_name),
+        |p| {
+            let url_chars = urls
+                .get(&p.res_num)
+                .map_or(0, |u| u.iter().map(|s| s.chars().count()).sum());
+            p.response_chars(include_name, include_id) + url_chars
+        },
     );
+
+    // Remove URLs for omitted posts
+    let retained: HashSet<usize> = posts.iter().map(|p| p.res_num).collect();
+    let urls: HashMap<usize, Vec<String>> = urls
+        .into_iter()
+        .filter(|(k, _)| retained.contains(k))
+        .collect();
 
     Ok(ReadPostsResult {
         posts,
         file_info,
         ref_counts,
+        urls,
         omitted_count,
     })
 }
@@ -257,6 +288,38 @@ mod tests {
         .unwrap();
         assert_eq!(result.posts.len(), 1);
         assert_eq!(result.posts[0].res_num, 1);
+    }
+
+    #[test]
+    fn read_include_urls() {
+        let ctx = create_test_dat_dir();
+        let result = read_posts(
+            &ctx.dat_dir,
+            &ReadPostsParams {
+                file: "630".into(),
+                range: Some("1-1".into()),
+                include_urls: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let urls = result.urls.get(&1).unwrap();
+        assert_eq!(urls.len(), 1);
+        assert!(urls[0].contains("example.com"));
+    }
+
+    #[test]
+    fn read_include_urls_false() {
+        let ctx = create_test_dat_dir();
+        let result = read_posts(
+            &ctx.dat_dir,
+            &ReadPostsParams {
+                file: "630".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(result.urls.is_empty());
     }
 
     #[test]
