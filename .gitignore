@@ -161,4 +161,5 @@ tags
 
 # End of https://www.gitignore.io/api/jetbrains,rust,sublimetext,vim
 
+.idea/db-forest-config.xml
 !Cargo.lock

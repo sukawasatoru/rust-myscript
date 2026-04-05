@@ -10,7 +10,9 @@ edition.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+encoding_rs = { workspace = true }
 regex = { workspace = true }
+reqwest = { workspace = true }
 rmcp = { workspace = true }
 rust-myscript = { workspace = true }
 serde = { workspace = true }

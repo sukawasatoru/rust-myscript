@@ -14,5 +14,6 @@
  * limitations under the License.
  */
 
+pub mod fetch_dat;
 pub mod read_posts;
 pub mod search_posts;

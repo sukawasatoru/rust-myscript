@@ -871,7 +871,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "encoding_rs",
  "regex",
+ "reqwest 0.13.1",
  "rmcp",
  "rust-myscript",
  "serde",

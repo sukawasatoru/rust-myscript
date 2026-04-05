@@ -15,7 +15,7 @@
  */
 
 use clap::{Parser, ValueHint};
-use dat_explorer::feature::{read_posts, search_posts};
+use dat_explorer::feature::{fetch_dat, read_posts, search_posts};
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
@@ -24,7 +24,7 @@ use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use rust_myscript::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::Level;
 
 /// 5ch .dat file analysis MCP server
@@ -75,6 +75,18 @@ struct ReadPostsToolParams {
     include_urls: bool,
 }
 
+#[derive(Serialize, JsonSchema)]
+struct ReadPostsResponse {
+    file_info: FileInfoEntry,
+    /// カラム名の一覧: ["res_num", "name", "datetime", "id", "body", "ref_count", "urls"] (name, id, urls は引数による)
+    columns: Vec<String>,
+    /// 各レスの値を columns の順に並べた配列
+    rows: Vec<Vec<serde_json::Value>>,
+    /// max_body_chars 超過により省略されたレス数
+    #[serde(default, skip_serializing_if = "is_zero")]
+    omitted_count: usize,
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct SearchPostsToolParams {
     /// 検索キーワード（正規表現対応）
@@ -98,15 +110,46 @@ struct SearchPostsToolParams {
 }
 
 #[derive(Serialize, JsonSchema)]
-struct ReadPostsResponse {
-    file_info: FileInfoEntry,
-    /// カラム名の一覧: ["res_num", "name", "datetime", "id", "body", "ref_count", "urls"] (name, id, urls は引数による)
+struct SearchPostsResponse {
+    total_hits: usize,
+    searched_files: Vec<String>,
+    /// カラム名の一覧: ["file", "res_num", "datetime", "id", "body", "urls", "ref_count"] (id は引数による)
     columns: Vec<String>,
-    /// 各レスの値を columns の順に並べた配列
+    /// 各ヒットの値を columns の順に並べた配列
     rows: Vec<Vec<serde_json::Value>>,
-    /// max_body_chars 超過により省略されたレス数
+    /// max_body_chars 超過により省略されたヒット数
     #[serde(default, skip_serializing_if = "is_zero")]
     omitted_count: usize,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct FetchDatToolParams {
+    /// スレッドの URL。以下の2形式に対応する。どちらの形式でも、まず dat 直接取得を試み、
+    /// 404（dat落ち）の場合は自動的に read.cgi 経由（HTML取得・dat変換）に切り替える。
+    ///
+    /// 形式1 - dat URL（現行スレ・dat落ちスレ共通）:
+    ///   "https://{server}.5ch.io/{board}/dat/{thread_id}.dat"
+    ///
+    /// 形式2 - read.cgi URL:
+    ///   "https://{server}.5ch.io/test/read.cgi/{board}/{thread_id}/"
+    url: String,
+
+    /// 保存先ファイルパス。絶対パスまたは相対パスで指定する。
+    /// 相対パスの場合は CLI 引数で指定した dat_dir を基準に解決する。
+    /// 既存ファイルがある場合は上書き保存し、増加レス数を added_res_count で返す。
+    /// 例（絶対パス）: "/path/to/dir/PREFIX_635_1234567890.dat"
+    /// 例（相対パス）: "PREFIX_635_1234567890.dat"
+    save_path: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct FetchDatResponse {
+    /// 実際に保存したファイルの絶対パス
+    save_path: String,
+    /// 保存した dat のレス数（空行を除く行数）
+    res_count: usize,
+    /// 既存ファイルからの増加レス数。既存ファイルがなければ null、更新がなければ 0
+    added_res_count: Option<usize>,
 }
 
 fn is_zero(v: &usize) -> bool {
@@ -120,19 +163,6 @@ struct FileInfoEntry {
     thread_title: String,
     total_lines: usize,
     date_range: String,
-}
-
-#[derive(Serialize, JsonSchema)]
-struct SearchPostsResponse {
-    total_hits: usize,
-    searched_files: Vec<String>,
-    /// カラム名の一覧: ["file", "res_num", "datetime", "id", "body", "urls", "ref_count"] (id は引数による)
-    columns: Vec<String>,
-    /// 各ヒットの値を columns の順に並べた配列
-    rows: Vec<Vec<serde_json::Value>>,
-    /// max_body_chars 超過により省略されたヒット数
-    #[serde(default, skip_serializing_if = "is_zero")]
-    omitted_count: usize,
 }
 
 struct McpServer {
@@ -171,7 +201,10 @@ impl McpServer {
                 disable_body_limit: self.disable_body_limit,
             },
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            warn!(?e, "read_posts failed");
+            e.to_string()
+        })?;
 
         let ref_counts = result.ref_counts;
         let urls = result.urls;
@@ -248,7 +281,10 @@ impl McpServer {
                 disable_body_limit: self.disable_body_limit,
             },
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            warn!(?e, "search_posts failed");
+            e.to_string()
+        })?;
 
         let include_id = p.include_id;
         let mut columns = vec!["file".into(), "res_num".into(), "datetime".into()];
@@ -276,6 +312,37 @@ impl McpServer {
             omitted_count: result.omitted_count,
         }))
     }
+
+    /// 5ch のスレッドをインターネットから取得して UTF-8 の dat ファイルとして保存する
+    #[tool(annotations(read_only_hint = false, open_world_hint = true))]
+    async fn fetch_dat(
+        &self,
+        params: Parameters<FetchDatToolParams>,
+    ) -> Result<Json<FetchDatResponse>, String> {
+        let p = &params.0;
+        let save_path = {
+            let p = Path::new(&p.save_path);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                self.dat_dir.join(p)
+            }
+        };
+        let result = fetch_dat::fetch_dat(&fetch_dat::FetchDatParams {
+            url: p.url.clone(),
+            save_path: save_path.to_string_lossy().into_owned(),
+        })
+        .await
+        .map_err(|e| {
+            warn!(?e, "fetch_dat failed");
+            e.to_string()
+        })?;
+        Ok(Json(FetchDatResponse {
+            save_path: result.save_path,
+            res_count: result.res_count,
+            added_res_count: result.added_res_count,
+        }))
+    }
 }
 
 #[tool_handler]
@@ -286,12 +353,7 @@ impl ServerHandler for McpServer {
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
             ))
-            .with_instructions(
-                "5ch の .dat ファイルを読み取る MCP サーバーです。\
-                各ファイルは一つのスレッドに対応し、スレ番号（例: \"630\"）で識別します。\
-                典型的な使い方: search_posts でキーワード検索してヒットしたスレ・レスを特定したり、\
-                read_posts で該当スレのレスを読んで文脈を把握する。",
-            )
+            .with_instructions("5ちゃんねるの dat ファイルの取得・読み取りを行う")
     }
 }
 
