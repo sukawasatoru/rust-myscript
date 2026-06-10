@@ -571,10 +571,8 @@ impl<'a> SelectFilesApp<'a> {
                             self.files_layout_state.select_next();
                         }
                     }
-                    MouseEventKind::ScrollUp => {
-                        if self.focus_area == SelectFilesFocusArea::Files {
-                            self.files_layout_state.select_previous();
-                        }
+                    MouseEventKind::ScrollUp if self.focus_area == SelectFilesFocusArea::Files => {
+                        self.files_layout_state.select_previous();
                     }
                     _ => (),
                 },
