@@ -68,6 +68,7 @@ struct SearchToolParams {
 
     /// 返す検索結果の最大件数。1〜20、未指定なら 10。
     /// 必要な件数だけにすると応答が速くなる（多いほど遅くなる）。
+    /// 通常は未指定でよい。
     #[serde(default)]
     max_results: Option<u8>,
 
