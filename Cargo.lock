@@ -2178,6 +2178,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcp-pplx"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest",
+ "rmcp",
+ "rust-myscript",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "mdns-sd"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
