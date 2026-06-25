@@ -155,6 +155,16 @@ struct DeleteMemoRequest {
     key: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct EditMemoRequest {
+    /// The key of the memo to edit.
+    key: String,
+    /// The string to find and replace (must occur exactly once).
+    old: String,
+    /// The replacement string.
+    new: String,
+}
+
 #[tool_router]
 impl MemoServer {
     /// Get the content of a memo by key.
@@ -232,6 +242,63 @@ impl MemoServer {
                 Err(format!("failed to delete memo '{}'", req.key))
             }
         }
+    }
+
+    /// Edit a memo by replacing a single occurrence of `old` with `new`.
+    #[tool]
+    #[instrument(skip(self))]
+    async fn edit_memo(
+        &self,
+        Parameters(req): Parameters<EditMemoRequest>,
+    ) -> Result<String, String> {
+        if req.old.is_empty() {
+            return Err("old must not be empty".to_string());
+        }
+        let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
+        let content = match tokio::fs::read_to_string(&path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!("memo '{}' not found", req.key));
+            }
+            Err(e) => {
+                warn!(?e, key = %req.key, "failed to read memo");
+                return Err(format!("failed to read memo '{}'", req.key));
+            }
+        };
+
+        let first = match content.find(&req.old) {
+            Some(p) => p,
+            None => {
+                return Err(format!("old text not found in memo '{}'", req.key));
+            }
+        };
+        // Check for a second occurrence (including overlapping ones) by advancing only one char.
+        let mut second_search_start = first;
+        if let Some((delta, _)) = content[second_search_start..].char_indices().nth(1) {
+            second_search_start += delta;
+        } else {
+            second_search_start = content.len();
+        }
+        if second_search_start < content.len() && content[second_search_start..].contains(&req.old)
+        {
+            return Err(format!(
+                "old text occurs multiple times in memo '{}'",
+                req.key
+            ));
+        }
+
+        if tokio::fs::metadata(&path).await.is_ok() {
+            self.backup_memo(&path, &req.key).await;
+        }
+
+        let mut new_content = content.clone();
+        new_content.replace_range(first..first + req.old.len(), &req.new);
+
+        if let Err(e) = tokio::fs::write(&path, &new_content).await {
+            warn!(?e, key = %req.key, "failed to write memo");
+            return Err(format!("failed to write memo '{}'", req.key));
+        }
+        Ok(format!("Edited memo '{}'", req.key))
     }
 
     /// List all memo keys.
@@ -522,5 +589,207 @@ mod tests {
         entries.sort();
         assert_eq!(entries.len(), 1);
         assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1");
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_replace_single_occurrence() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call(
+            "set_memo",
+            json!({ "key": "doc", "content": "hello world" }),
+        )
+        .await
+        .unwrap();
+        let result = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "world", "new": "rust" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, "Edited memo 'doc'");
+
+        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
+        assert_eq!(content, "hello rust");
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_when_old_occurs_multiple_times() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "ab ab ab" }))
+            .await
+            .unwrap();
+        let err = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "ab", "new": "X" }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("multiple times"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_when_memo_not_found() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        let err = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "missing", "old": "x", "new": "y" }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_when_old_not_found() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "hello" }))
+            .await
+            .unwrap();
+        let err = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "world", "new": "rust" }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_backup_before_edit() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "note", "content": "v1 text" }))
+            .await
+            .unwrap();
+        ctx.call(
+            "edit_memo",
+            json!({ "key": "note", "old": "v1", "new": "v2" }),
+        )
+        .await
+        .unwrap();
+
+        let content = ctx
+            .call("get_memo", json!({ "key": "note" }))
+            .await
+            .unwrap();
+        assert_eq!(content, "v2 text");
+
+        let backup_dir = dir.path().join("backup").join("note");
+        let mut entries = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1 text");
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_for_empty_old() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "abc" }))
+            .await
+            .unwrap();
+        let err = ctx
+            .call("edit_memo", json!({ "key": "doc", "old": "", "new": "x" }))
+            .await
+            .unwrap_err();
+        assert!(err.contains("old must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_replace_multiline_text() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call(
+            "set_memo",
+            json!({ "key": "doc", "content": "header\nbody\nfooter" }),
+        )
+        .await
+        .unwrap();
+        let result = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "body\nfooter", "new": "newbody\nnewfooter" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, "Edited memo 'doc'");
+
+        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
+        assert_eq!(content, "header\nnewbody\nnewfooter");
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_when_multiline_old_occurs_multiple_times() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "a\nb\na\nb" }))
+            .await
+            .unwrap();
+        let err = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "a\nb", "new": "X" }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("multiple times"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_fail_when_overlapping_occurrence() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "ああああ" }))
+            .await
+            .unwrap();
+        let err = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "あああ", "new": "X" }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("multiple times"));
+    }
+
+    #[tokio::test]
+    async fn edit_memo_should_succeed_for_non_overlapping_single() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "doc", "content": "ああああ" }))
+            .await
+            .unwrap();
+        let result = ctx
+            .call(
+                "edit_memo",
+                json!({ "key": "doc", "old": "ああああ", "new": "X" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, "Edited memo 'doc'");
+
+        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
+        assert_eq!(content, "X");
     }
 }
