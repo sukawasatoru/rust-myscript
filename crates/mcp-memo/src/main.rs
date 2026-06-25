@@ -69,6 +69,8 @@ async fn main() {
 #[derive(Debug, Clone)]
 struct MemoServer {
     data_dir: PathBuf,
+
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
@@ -206,10 +208,24 @@ impl MemoServer {
         Parameters(req): Parameters<DeleteMemoRequest>,
     ) -> Result<String, String> {
         let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
+        let existed = tokio::fs::metadata(&path).await.is_ok();
+        if existed {
+            // TOCTOU: the file could be removed between the metadata check and rename inside
+            // backup_memo, but rename's NotFound is already handled gracefully there, so this
+            // is acceptable for now.
+            // backup_memo failures are intentionally non-fatal: a warn! is emitted and the
+            // delete proceeds so that deletes are never blocked by backup errors.
+            self.backup_memo(&path, &req.key).await;
+        }
         match tokio::fs::remove_file(&path).await {
             Ok(()) => Ok(format!("Deleted memo '{}'", req.key)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Err(format!("memo '{}' not found", req.key))
+                if existed {
+                    // The memo was backed up via rename, so it is considered deleted.
+                    Ok(format!("Deleted memo '{}'", req.key))
+                } else {
+                    Err(format!("memo '{}' not found", req.key))
+                }
             }
             Err(e) => {
                 warn!(?e, key = %req.key, "failed to delete memo");
@@ -474,5 +490,37 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn delete_memo_should_backup_existing_memo() {
+        let dir = tempdir().unwrap();
+        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+
+        ctx.call("set_memo", json!({ "key": "note", "content": "v1" }))
+            .await
+            .unwrap();
+        let result = ctx
+            .call("delete_memo", json!({ "key": "note" }))
+            .await
+            .unwrap();
+        assert_eq!(result, "Deleted memo 'note'");
+
+        // Memo should be gone
+        let err = ctx
+            .call("get_memo", json!({ "key": "note" }))
+            .await
+            .unwrap_err();
+        assert!(err.contains("not found"));
+
+        // Backup directory should contain one file with content v1
+        let backup_dir = dir.path().join("backup").join("note");
+        let mut entries = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1");
     }
 }
