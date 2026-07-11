@@ -46,6 +46,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/mcp-memo/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/mcp-pplx/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/mytimeout/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mytimeout/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

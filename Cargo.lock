@@ -3870,14 +3870,12 @@ dependencies = [
 name = "temperature-sensor"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
  "dotenv",
  "mdns-sd",
  "regex",
  "reqwest",
  "rust-myscript",
- "serde",
  "serde_json",
  "tokio",
  "tracing",

@@ -147,6 +147,7 @@ async fn main() -> Fallible<()> {
         None => {
             tracing_subscriber::fmt()
                 .with_writer(std::io::stderr)
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                 .init();
             None
         }
@@ -154,27 +155,22 @@ async fn main() -> Fallible<()> {
 
     let mut sensor_values: Vec<(String, f64, Option<f64>)> = vec![];
 
-    let mut _failed_hue = false;
-
     if let Some(hue) = opt.hue {
         match retrieve_hue_temperature(hue).await {
-            Ok((list, has_error)) => {
+            Ok((list, _has_error)) => {
                 sensor_values.append(
                     &mut list
                         .into_iter()
                         .map(|(name, temperature)| (name, temperature, None))
                         .collect(),
                 );
-                _failed_hue = has_error;
             }
             Err(e) => {
                 info!(?e, "failed to retrieve temperature from hue");
-                _failed_hue = true;
             }
         };
     }
 
-    let mut _failed_remo = false;
     if let Some(remo) = opt.remo {
         let res_devices = client
             .get("https://api.nature.global/1/devices")
@@ -193,7 +189,7 @@ async fn main() -> Fallible<()> {
             let temperature = get_temperature(device)?;
             let humidity = get_humidity(device)?;
 
-            sensor_values.push((friendly_name, temperature, Some(humidity)));
+            sensor_values.push((friendly_name, temperature, humidity));
         }
     }
 
@@ -391,12 +387,11 @@ fn get_temperature(device: &serde_json::Value) -> Fallible<f64> {
         .context("temperature")
 }
 
-fn get_humidity(device: &serde_json::Value) -> Fallible<f64> {
-    device["newest_events"]
-        .get("hu")
-        .context("temperature event is not exist")?["val"]
-        .as_f64()
-        .context("humidity")
+fn get_humidity(device: &serde_json::Value) -> Fallible<Option<f64>> {
+    match device["newest_events"].get("hu") {
+        Some(event) => event["val"].as_f64().context("humidity").map(Some),
+        None => Ok(None),
+    }
 }
 
 fn generate_telegram_payload(
@@ -587,7 +582,15 @@ mod tests {
         let devices = serde_json::from_str(TEST_RES).unwrap();
         let device = get_device(&devices, "d02b1856-e29f-42a0-bd73-08498d706466").unwrap();
         let actual = get_humidity(device).unwrap();
-        assert_eq!(actual, 41f64);
+        assert_eq!(actual, Some(41f64));
+    }
+
+    #[test]
+    fn get_humidity_none() {
+        let devices = serde_json::from_str(TEST_RES).unwrap();
+        let device = get_device(&devices, "1f99c86d-bdad-4199-8225-0d4ac80cfb2b").unwrap();
+        let actual = get_humidity(device).unwrap();
+        assert_eq!(actual, None);
     }
 
     const TEST_RES: &str = r#"
