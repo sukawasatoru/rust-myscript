@@ -20,8 +20,10 @@ use mdns_sd::{IfKind, ServiceEvent};
 use reqwest::header;
 use rust_myscript::feature::otel::init_otel;
 use rust_myscript::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::Write;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use url::Url;
 
@@ -162,6 +164,20 @@ struct SensorValue {
     name: String,
     temperature: f64,
     humidity: Option<f64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CachedToken {
+    access_token: String,
+    /// unixepoch (secs)
+    expires_at: u64,
+    scope: String,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    expires_in: u64,
 }
 
 #[tokio::main]
@@ -464,6 +480,9 @@ fn get_humidity(device: &serde_json::Value) -> Fallible<Option<f64>> {
     }
 }
 
+/// margin to absorb clock skew and processing time.
+const TOKEN_EXPIRY_MARGIN_SECS: u64 = 120;
+
 #[tracing::instrument(skip_all)]
 async fn post_to_dataverse(
     client: &reqwest::Client,
@@ -473,36 +492,145 @@ async fn post_to_dataverse(
     let tenant = dataverse
         .dataverse_tenant
         .expect("dataverse_tenant should not be None");
+    let client_id = dataverse
+        .dataverse_client_id
+        .expect("dataverse_client_id should not be None");
+    let client_secret = dataverse
+        .dataverse_client_secret
+        .expect("dataverse_client_secret should not be None");
     let environment_url = dataverse
         .dataverse_environment_url
         .expect("dataverse_environment_url should not be None");
 
+    let scope = format!(
+        "{}/.default",
+        environment_url.as_str().trim_end_matches('/')
+    );
+
+    let cache_path = token_cache_path()?;
+    let unixepoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+
+    let mut access_token = match load_cached_token(&cache_path, &scope, unixepoch) {
+        Some(data) => {
+            debug!("use cached access token");
+            data
+        }
+        None => {
+            fetch_and_cache_token(
+                client,
+                &tenant,
+                &client_id,
+                &client_secret,
+                &scope,
+                &cache_path,
+            )
+            .await?
+        }
+    };
+
+    let api_url = create_dataverse_api_url(&environment_url)?;
+
+    let mut refreshed = false;
+    for SensorValue {
+        name,
+        temperature,
+        humidity,
+    } in sensor_values
+    {
+        let payload = generate_dataverse_payload(name, *temperature, *humidity, unixepoch)?;
+        debug!(payload);
+        loop {
+            let ret = client
+                .post(api_url.as_str())
+                .bearer_auth(&access_token)
+                .header(header::ACCEPT, "application/json")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("OData-MaxVersion", "4.0")
+                .header("OData-Version", "4.0")
+                .body(payload.clone())
+                .send()
+                .await;
+            match ret {
+                Ok(res) => {
+                    info!(?res);
+                    if res.status() == reqwest::StatusCode::UNAUTHORIZED && !refreshed {
+                        info!("access token was rejected; refresh access token");
+                        refreshed = true;
+                        access_token = fetch_and_cache_token(
+                            client,
+                            &tenant,
+                            &client_id,
+                            &client_secret,
+                            &scope,
+                            &cache_path,
+                        )
+                        .await?;
+                        continue;
+                    }
+                    if !res.status().is_success() {
+                        warn!(res_text = %res.text().await.unwrap_or_default(), "failed to post to dataverse");
+                    }
+                }
+                Err(e) => {
+                    warn!(?e, name, "failed to post to dataverse");
+                }
+            }
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn token_cache_path() -> Fallible<PathBuf> {
+    let dirs = directories::ProjectDirs::from("com", "sukawasatoru", "temperature-sensor")
+        .context("failed to retrieve project directories")?;
+    Ok(dirs.cache_dir().join("dataverse-token.json"))
+}
+
+fn load_cached_token(path: &Path, scope: &str, now: u64) -> Option<String> {
+    let data = std::fs::read_to_string(path).ok()?;
+    let token = serde_json::from_str::<CachedToken>(&data).ok()?;
+    (token.scope == scope && now < token.expires_at).then_some(token.access_token)
+}
+
+fn save_cached_token(path: &Path, token: &CachedToken) -> Fallible<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp_path = path.with_extension("tmp");
+    {
+        use std::io::Write as _;
+
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp_path)?;
+        file.write_all(serde_json::to_string(token)?.as_bytes())?;
+    }
+    std::fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+async fn fetch_and_cache_token(
+    client: &reqwest::Client,
+    tenant: &str,
+    client_id: &str,
+    client_secret: &str,
+    scope: &str,
+    cache_path: &Path,
+) -> Fallible<String> {
     let res_token = client
         .post(format!(
             "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
         ))
         .form(&[
-            (
-                "client_id",
-                dataverse
-                    .dataverse_client_id
-                    .as_deref()
-                    .expect("dataverse_client_id should not be None"),
-            ),
-            (
-                "client_secret",
-                dataverse
-                    .dataverse_client_secret
-                    .as_deref()
-                    .expect("dataverse_client_secret should not be None"),
-            ),
-            (
-                "scope",
-                &format!(
-                    "{}/.default",
-                    environment_url.as_str().trim_end_matches('/')
-                ),
-            ),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("scope", scope),
             ("grant_type", "client_credentials"),
         ])
         .send()
@@ -516,48 +644,24 @@ async fn post_to_dataverse(
     }
     let res_token_text = res_token.text().await?;
 
-    let token_json = serde_json::from_str::<serde_json::Value>(&res_token_text)?;
-    let access_token = token_json["access_token"]
-        .as_str()
-        .context(".access_token")?;
+    let token_response = serde_json::from_str::<TokenResponse>(&res_token_text)?;
 
-    let api_url = create_dataverse_api_url(&environment_url)?;
     let unixepoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
-
-    for SensorValue {
-        name,
-        temperature,
-        humidity,
-    } in sensor_values
-    {
-        let payload = generate_dataverse_payload(name, *temperature, *humidity, unixepoch)?;
-        debug!(payload);
-        let ret = client
-            .post(api_url.as_str())
-            .bearer_auth(access_token)
-            .header(header::ACCEPT, "application/json")
-            .header(header::CONTENT_TYPE, "application/json")
-            .header("OData-MaxVersion", "4.0")
-            .header("OData-Version", "4.0")
-            .body(payload)
-            .send()
-            .await;
-        match ret {
-            Ok(res) => {
-                info!(?res);
-                if !res.status().is_success() {
-                    warn!(res_text = %res.text().await.unwrap_or_default(), "failed to post to dataverse");
-                }
-            }
-            Err(e) => {
-                warn!(?e, name, "failed to post to dataverse");
-            }
-        }
+    let cached_token = CachedToken {
+        access_token: token_response.access_token,
+        expires_at: unixepoch
+            + token_response
+                .expires_in
+                .saturating_sub(TOKEN_EXPIRY_MARGIN_SECS),
+        scope: scope.to_owned(),
+    };
+    if let Err(e) = save_cached_token(cache_path, &cached_token) {
+        warn!(?e, "failed to save access token to cache");
     }
 
-    Ok(())
+    Ok(cached_token.access_token)
 }
 
 fn create_dataverse_api_url(environment_url: &Url) -> Fallible<Url> {
@@ -815,6 +919,117 @@ mod tests {
                 "cre1f_temperature": 25.6,
             }),
         );
+    }
+
+    #[test]
+    fn load_cached_token_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dataverse-token.json");
+        save_cached_token(
+            &path,
+            &CachedToken {
+                access_token: "token".into(),
+                expires_at: 1752310000,
+                scope: "https://org00000000.crm0.dynamics.com/.default".into(),
+            },
+        )
+        .unwrap();
+
+        let actual = load_cached_token(
+            &path,
+            "https://org00000000.crm0.dynamics.com/.default",
+            1752309999,
+        );
+        assert_eq!(actual, Some("token".into()));
+    }
+
+    #[test]
+    fn load_cached_token_expired() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dataverse-token.json");
+        save_cached_token(
+            &path,
+            &CachedToken {
+                access_token: "token".into(),
+                expires_at: 1752310000,
+                scope: "https://org00000000.crm0.dynamics.com/.default".into(),
+            },
+        )
+        .unwrap();
+
+        let actual = load_cached_token(
+            &path,
+            "https://org00000000.crm0.dynamics.com/.default",
+            1752310000,
+        );
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn load_cached_token_scope_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dataverse-token.json");
+        save_cached_token(
+            &path,
+            &CachedToken {
+                access_token: "token".into(),
+                expires_at: 1752310000,
+                scope: "https://org00000000.crm0.dynamics.com/.default".into(),
+            },
+        )
+        .unwrap();
+
+        let actual = load_cached_token(
+            &path,
+            "https://org11111111.crm0.dynamics.com/.default",
+            1752309999,
+        );
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn load_cached_token_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dataverse-token.json");
+
+        let actual = load_cached_token(
+            &path,
+            "https://org00000000.crm0.dynamics.com/.default",
+            1752309999,
+        );
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn load_cached_token_broken_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dataverse-token.json");
+        std::fs::write(&path, "{broken").unwrap();
+
+        let actual = load_cached_token(
+            &path,
+            "https://org00000000.crm0.dynamics.com/.default",
+            1752309999,
+        );
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn save_cached_token_creates_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dataverse-token.json");
+        save_cached_token(
+            &path,
+            &CachedToken {
+                access_token: "token".into(),
+                expires_at: 1752310000,
+                scope: "scope".into(),
+            },
+        )
+        .unwrap();
+
+        assert!(path.exists());
+        assert!(!path.with_extension("tmp").exists());
     }
 
     #[test]

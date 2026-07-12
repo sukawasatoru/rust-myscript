@@ -3871,12 +3871,15 @@ name = "temperature-sensor"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "directories",
  "dotenv",
  "mdns-sd",
  "regex",
  "reqwest",
  "rust-myscript",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
