@@ -36,6 +36,9 @@ struct Opt {
     #[command(flatten)]
     telegram: Option<OptTelegram>,
 
+    #[command(flatten)]
+    dataverse: Option<OptDataverse>,
+
     /// Use old service_name for otel
     #[arg(long, env)]
     otel_use_old_service_name: bool,
@@ -123,6 +126,44 @@ struct OptTelegram {
     telegram_text_template: Option<String>,
 }
 
+#[derive(Args)]
+struct OptDataverse {
+    /// Log to my Dataverse
+    #[arg(
+        long,
+        env,
+        requires_ifs = [
+            (ArgPredicate::IsPresent, "dataverse_tenant"),
+            (ArgPredicate::IsPresent, "dataverse_client_id"),
+            (ArgPredicate::IsPresent, "dataverse_client_secret"),
+            (ArgPredicate::IsPresent, "dataverse_environment_url"),
+        ],
+    )]
+    use_dataverse: bool,
+
+    /// Tenant ID
+    #[arg(long, env, requires = "use_dataverse")]
+    dataverse_tenant: Option<String>,
+
+    /// Confidential client ID
+    #[arg(long, env, requires = "use_dataverse")]
+    dataverse_client_id: Option<String>,
+
+    /// Confidential client secret
+    #[arg(long, env, requires = "use_dataverse")]
+    dataverse_client_secret: Option<String>,
+
+    /// Power Platform environment URL (e.g. `https://<org>.crm.dynamics.com`), not the Web API endpoint
+    #[arg(long, env, requires = "use_dataverse")]
+    dataverse_environment_url: Option<Url>,
+}
+
+struct SensorValue {
+    name: String,
+    temperature: f64,
+    humidity: Option<f64>,
+}
+
 #[tokio::main]
 async fn main() -> Fallible<()> {
     dotenv::dotenv().ok();
@@ -153,15 +194,22 @@ async fn main() -> Fallible<()> {
         }
     };
 
-    let mut sensor_values: Vec<(String, f64, Option<f64>)> = vec![];
+    let mut sensor_values: Vec<SensorValue> = vec![];
 
     if let Some(hue) = opt.hue {
         match retrieve_hue_temperature(hue).await {
-            Ok((list, _has_error)) => {
+            Ok((list, has_error)) => {
+                if has_error {
+                    warn!("failed to retrieve some temperatures from hue");
+                }
                 sensor_values.append(
                     &mut list
                         .into_iter()
-                        .map(|(name, temperature)| (name, temperature, None))
+                        .map(|(name, temperature)| SensorValue {
+                            name,
+                            temperature,
+                            humidity: None,
+                        })
                         .collect(),
                 );
             }
@@ -189,7 +237,11 @@ async fn main() -> Fallible<()> {
             let temperature = get_temperature(device)?;
             let humidity = get_humidity(device)?;
 
-            sensor_values.push((friendly_name, temperature, humidity));
+            sensor_values.push(SensorValue {
+                name: friendly_name,
+                temperature,
+                humidity,
+            });
         }
     }
 
@@ -221,7 +273,19 @@ async fn main() -> Fallible<()> {
         debug!(ret_telegram_text = %ret_telegram.text().await?);
     }
 
-    for (name, temperature, humidity) in &sensor_values {
+    if let Some(dataverse) = opt.dataverse {
+        info!("post to dataverse");
+        if let Err(e) = post_to_dataverse(&client, dataverse, &sensor_values).await {
+            warn!(?e, "failed to post to dataverse");
+        }
+    }
+
+    for SensorValue {
+        name,
+        temperature,
+        humidity,
+    } in &sensor_values
+    {
         println!(
             "{}:\n  temperature: {}\n  humidity: {}",
             name,
@@ -263,7 +327,7 @@ async fn retrieve_hue_temperature(hue: OptHue) -> Fallible<(Vec<(String, f64)>, 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let mut devices = hue.hue.clone();
 
-    tokio::task::spawn(tokio::time::timeout(
+    let handle = tokio::task::spawn(tokio::time::timeout(
         Duration::from_secs(hue.timeout_secs),
         async move {
             while let Ok(event) = receiver.recv_async().await {
@@ -362,6 +426,12 @@ async fn retrieve_hue_temperature(hue: OptHue) -> Fallible<(Vec<(String, f64)>, 
         result.push(data);
     }
 
+    match handle.await {
+        Ok(Ok(())) => (),
+        Ok(Err(e)) => info!(?e, "timed out to retrieve hue device info"),
+        Err(e) => info!(?e, "failed to join the task"),
+    }
+
     let has_error = hue.hue.len() != result.len();
 
     while let Err(mdns_sd::Error::Again) = mdns.shutdown() {
@@ -394,14 +464,146 @@ fn get_humidity(device: &serde_json::Value) -> Fallible<Option<f64>> {
     }
 }
 
+#[tracing::instrument(skip_all)]
+async fn post_to_dataverse(
+    client: &reqwest::Client,
+    dataverse: OptDataverse,
+    sensor_values: &[SensorValue],
+) -> Fallible<()> {
+    let tenant = dataverse
+        .dataverse_tenant
+        .expect("dataverse_tenant should not be None");
+    let environment_url = dataverse
+        .dataverse_environment_url
+        .expect("dataverse_environment_url should not be None");
+
+    let res_token = client
+        .post(format!(
+            "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+        ))
+        .form(&[
+            (
+                "client_id",
+                dataverse
+                    .dataverse_client_id
+                    .as_deref()
+                    .expect("dataverse_client_id should not be None"),
+            ),
+            (
+                "client_secret",
+                dataverse
+                    .dataverse_client_secret
+                    .as_deref()
+                    .expect("dataverse_client_secret should not be None"),
+            ),
+            (
+                "scope",
+                &format!(
+                    "{}/.default",
+                    environment_url.as_str().trim_end_matches('/')
+                ),
+            ),
+            ("grant_type", "client_credentials"),
+        ])
+        .send()
+        .await?;
+    info!(?res_token);
+    if !res_token.status().is_success() {
+        bail!(
+            "failed to retrieve access token: {}",
+            res_token.text().await.unwrap_or_default(),
+        );
+    }
+    let res_token_text = res_token.text().await?;
+
+    let token_json = serde_json::from_str::<serde_json::Value>(&res_token_text)?;
+    let access_token = token_json["access_token"]
+        .as_str()
+        .context(".access_token")?;
+
+    let api_url = create_dataverse_api_url(&environment_url)?;
+    let unixepoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+
+    for SensorValue {
+        name,
+        temperature,
+        humidity,
+    } in sensor_values
+    {
+        let payload = generate_dataverse_payload(name, *temperature, *humidity, unixepoch)?;
+        debug!(payload);
+        let ret = client
+            .post(api_url.as_str())
+            .bearer_auth(access_token)
+            .header(header::ACCEPT, "application/json")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("OData-MaxVersion", "4.0")
+            .header("OData-Version", "4.0")
+            .body(payload)
+            .send()
+            .await;
+        match ret {
+            Ok(res) => {
+                info!(?res);
+                if !res.status().is_success() {
+                    warn!(res_text = %res.text().await.unwrap_or_default(), "failed to post to dataverse");
+                }
+            }
+            Err(e) => {
+                warn!(?e, name, "failed to post to dataverse");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn create_dataverse_api_url(environment_url: &Url) -> Fallible<Url> {
+    let mut url = environment_url.clone();
+    let host = url.host_str().context("host")?;
+    let (org, rest) = host
+        .split_once('.')
+        .with_context(|| format!("unexpected host format: {host}"))?;
+    let api_host = format!("{org}.api.{rest}");
+    url.set_host(Some(&api_host))?;
+    url.set_path("/api/data/v9.2/cre1f_temperaturesensors");
+    Ok(url)
+}
+
+fn generate_dataverse_payload(
+    name: &str,
+    temperature: f64,
+    humidity: Option<f64>,
+    unixepoch: u64,
+) -> Fallible<String> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("cre1f_logid".into(), json!(format!("{name}-{unixepoch}")));
+    payload.insert("cre1f_sensorname".into(), json!(name));
+    payload.insert("cre1f_temperature".into(), json!(temperature));
+    if let Some(humidity) = humidity {
+        payload.insert("cre1f_humidity".into(), json!(humidity));
+    }
+    Ok(serde_json::to_string(&payload)?)
+}
+
 fn generate_telegram_payload(
     chat_id: &str,
     template_txt: &str,
-    values: &[(String, f64, Option<f64>)],
+    values: &[SensorValue],
 ) -> Fallible<String> {
     let mut report = String::new();
-    for (i, (friendly_name, temperature, humidity)) in values.iter().enumerate() {
-        write!(report, "*{friendly_name}*\n  温度：{temperature}℃")?;
+    for (
+        i,
+        SensorValue {
+            name,
+            temperature,
+            humidity,
+        },
+    ) in values.iter().enumerate()
+    {
+        write!(report, "*{name}*\n  温度：{temperature}℃")?;
         if let Some(humidity) = humidity {
             write!(report, "\n  湿度：{humidity}%")?;
         }
@@ -429,7 +631,7 @@ fn generate_telegram_payload(
     Ok(serde_json::to_string(&payload)?)
 }
 
-const PARSE_KEY_VALUE_ARG_ERR_MSG: &str = "format should be the following: <uuid>:<friendly name>";
+const PARSE_KEY_VALUE_ARG_ERR_MSG: &str = "format should be the following: <uuid>=<friendly name>";
 
 fn parse_key_value_arg(value: &str) -> Result<(String, String), &'static str> {
     let mut iter = value.split("=");
@@ -456,7 +658,7 @@ mod tests {
     #[test]
     fn opt_hue_ok() {
         let opt = Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--use-hue",
             "--hue-app-key",
             "app-key",
@@ -479,14 +681,14 @@ mod tests {
 
     #[test]
     fn opt_hue_missing_use_hue() {
-        let opt = Opt::try_parse_from(["temperature-remo", "--hue", "key=value"]);
+        let opt = Opt::try_parse_from(["temperature-sensor", "--hue", "key=value"]);
 
         assert!(opt.is_err());
     }
 
     #[test]
     fn opt_hue_invalid_format() {
-        let opt = Opt::try_parse_from(["temperature-remo", "--use-hue", "--hue", "key"]);
+        let opt = Opt::try_parse_from(["temperature-sensor", "--use-hue", "--hue", "key"]);
 
         assert!(opt.is_err());
     }
@@ -494,7 +696,7 @@ mod tests {
     #[test]
     fn opt_telegram_ok() {
         Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--use-telegram",
             "--telegram-bot-token",
             "token",
@@ -509,7 +711,7 @@ mod tests {
     #[test]
     fn opt_telegram_missing_use_telegram() {
         let opt = Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--telegram-bot-token",
             "token",
             "--telegram-chat-id",
@@ -523,7 +725,7 @@ mod tests {
     #[test]
     fn opt_telegram_missing_telegram_bot_token() {
         let opt = Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--use-telegram",
             "--telegram-chat-id",
             "chat-id",
@@ -536,7 +738,7 @@ mod tests {
     #[test]
     fn opt_telegram_missing_telegram_chat_id() {
         let opt = Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--use-telegram",
             "--telegram-bot-token",
             "token",
@@ -549,7 +751,7 @@ mod tests {
     #[test]
     fn opt_telegram_missing_telegram_text_template() {
         let opt = Opt::try_parse_from([
-            "temperature-remo",
+            "temperature-sensor",
             "--use-telegram",
             "--telegram-bot-token",
             "token",
@@ -557,6 +759,62 @@ mod tests {
             "chat-id",
         ]);
         assert!(opt.is_err());
+    }
+
+    #[test]
+    fn create_dataverse_api_url_ok() {
+        let environment_url = Url::parse("https://org00000000.crm0.dynamics.com").unwrap();
+        let actual = create_dataverse_api_url(&environment_url).unwrap();
+        assert_eq!(
+            actual.as_str(),
+            "https://org00000000.api.crm0.dynamics.com/api/data/v9.2/cre1f_temperaturesensors",
+        );
+    }
+
+    #[test]
+    fn opt_dataverse_invalid_environment_url() {
+        let opt = Opt::try_parse_from([
+            "temperature-sensor",
+            "--use-dataverse",
+            "--dataverse-tenant",
+            "tenant",
+            "--dataverse-client-id",
+            "client-id",
+            "--dataverse-client-secret",
+            "client-secret",
+            "--dataverse-environment-url",
+            "org00000000.crm0.dynamics.com",
+        ]);
+        assert!(opt.is_err());
+    }
+
+    #[test]
+    fn generate_dataverse_payload_with_humidity() {
+        let actual = generate_dataverse_payload("foo room", 25.6, Some(41f64), 1752310000).unwrap();
+        let actual = serde_json::from_str::<serde_json::Value>(&actual).unwrap();
+        assert_eq!(
+            actual,
+            json!({
+                "cre1f_logid": "foo room-1752310000",
+                "cre1f_sensorname": "foo room",
+                "cre1f_temperature": 25.6,
+                "cre1f_humidity": 41.0,
+            }),
+        );
+    }
+
+    #[test]
+    fn generate_dataverse_payload_without_humidity() {
+        let actual = generate_dataverse_payload("foo room", 25.6, None, 1752310000).unwrap();
+        let actual = serde_json::from_str::<serde_json::Value>(&actual).unwrap();
+        assert_eq!(
+            actual,
+            json!({
+                "cre1f_logid": "foo room-1752310000",
+                "cre1f_sensorname": "foo room",
+                "cre1f_temperature": 25.6,
+            }),
+        );
     }
 
     #[test]
