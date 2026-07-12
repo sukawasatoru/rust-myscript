@@ -291,7 +291,10 @@ async fn main() -> Fallible<()> {
 
     if let Some(dataverse) = opt.dataverse {
         info!("post to dataverse");
-        if let Err(e) = post_to_dataverse(&client, dataverse, &sensor_values).await {
+        let unixepoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        if let Err(e) = post_to_dataverse(&client, dataverse, &sensor_values, unixepoch).await {
             warn!(?e, "failed to post to dataverse");
         }
     }
@@ -488,6 +491,7 @@ async fn post_to_dataverse(
     client: &reqwest::Client,
     dataverse: OptDataverse,
     sensor_values: &[SensorValue],
+    unixepoch: u64,
 ) -> Fallible<()> {
     let tenant = dataverse
         .dataverse_tenant
@@ -508,9 +512,6 @@ async fn post_to_dataverse(
     );
 
     let cache_path = token_cache_path()?;
-    let unixepoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
 
     let mut access_token = match load_cached_token(&cache_path, &scope, unixepoch) {
         Some(data) => {
@@ -682,8 +683,15 @@ fn generate_dataverse_payload(
     humidity: Option<f64>,
     unixepoch: u64,
 ) -> Fallible<String> {
+    let created_on_jst = chrono::DateTime::from_timestamp(unixepoch.try_into()?, 0)
+        .context("failed to convert unixepoch to DateTime")?
+        .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).expect("JST offset"))
+        .format("%Y%m%d%H%M%S")
+        .to_string();
+
     let mut payload = serde_json::Map::new();
     payload.insert("cre1f_logid".into(), json!(format!("{name}-{unixepoch}")));
+    payload.insert("cre1f_cteatedonjst".into(), json!(created_on_jst));
     payload.insert("cre1f_sensorname".into(), json!(name));
     payload.insert("cre1f_temperature".into(), json!(temperature));
     if let Some(humidity) = humidity {
@@ -900,6 +908,7 @@ mod tests {
             actual,
             json!({
                 "cre1f_logid": "foo room-1752310000",
+                "cre1f_cteatedonjst": "20250712174640",
                 "cre1f_sensorname": "foo room",
                 "cre1f_temperature": 25.6,
                 "cre1f_humidity": 41.0,
@@ -915,6 +924,7 @@ mod tests {
             actual,
             json!({
                 "cre1f_logid": "foo room-1752310000",
+                "cre1f_cteatedonjst": "20250712174640",
                 "cre1f_sensorname": "foo room",
                 "cre1f_temperature": 25.6,
             }),

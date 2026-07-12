@@ -8,6 +8,7 @@ repository.workspace = true
 edition.workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 clap = { workspace = true }
 directories = { workspace = true }
 dotenv = { workspace = true }
