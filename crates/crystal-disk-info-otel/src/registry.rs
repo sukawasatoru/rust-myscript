@@ -14,17 +14,20 @@
  * limitations under the License.
  */
 
-use crate::model::{DiskEntry, GadgetSnapshot, parse_temperature};
+use crate::model::{DiskEntry, GadgetSnapshot, is_not_found_hresult, parse_temperature};
 use anyhow::{Context as _, Result as Fallible};
 use tracing::warn;
 use windows_registry::CURRENT_USER;
 
-const REGISTRY_PATH: &str = r"software\Crystal Dew World\CrystalDiskInfo";
+pub const REGISTRY_PATH: &str = r"software\Crystal Dew World\CrystalDiskInfo";
 
 pub fn read_snapshot() -> Fallible<Option<GadgetSnapshot>> {
     let key = match CURRENT_USER.open(REGISTRY_PATH) {
         Ok(key) => key,
-        Err(_) => return Ok(None),
+        Err(e) if is_not_found_hresult(e.code().0) => return Ok(None),
+        Err(e) => {
+            return Err(e).with_context(|| format!("failed to open registry path {REGISTRY_PATH}"));
+        }
     };
 
     let version = key.get_u32("Version").context("failed to read Version")?;

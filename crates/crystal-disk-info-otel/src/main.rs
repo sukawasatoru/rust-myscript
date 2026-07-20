@@ -54,6 +54,7 @@ fn main() {
 async fn main() -> rust_myscript::prelude::Fallible<()> {
     use crate::config::Config;
     use crate::model::disk_status_name;
+    use crate::registry::REGISTRY_PATH;
     use rust_myscript::feature::otel::init_otel;
     use rust_myscript::prelude::*;
     use std::time::Duration;
@@ -91,46 +92,29 @@ async fn main() -> rust_myscript::prelude::Fallible<()> {
                             debug!("skip: LastUpdate not changed");
                         } else {
                             for disk in &snapshot.disks {
-                                match disk.temperature_celsius {
-                                    Some(temperature_celsius) => {
-                                        info!(
-                                            event.name = "device.app.disk_status",
-                                            disk.model_serial = disk.model_serial.as_str(),
-                                            disk.model = disk.model.as_str(),
-                                            disk.drive_letter = disk.drive_letter.as_str(),
-                                            disk.size = disk.disk_size.as_str(),
-                                            disk.temperature_celsius = temperature_celsius,
-                                            disk.temperature_class =
-                                                disk.temperature_class.as_str(),
-                                            disk.status = disk.disk_status,
-                                            disk.status_name = disk_status_name(disk.disk_status),
-                                        );
-                                    }
-                                    None => {
-                                        info!(
-                                            event.name = "device.app.disk_status",
-                                            disk.model_serial = disk.model_serial.as_str(),
-                                            disk.model = disk.model.as_str(),
-                                            disk.drive_letter = disk.drive_letter.as_str(),
-                                            disk.size = disk.disk_size.as_str(),
-                                            disk.temperature_class =
-                                                disk.temperature_class.as_str(),
-                                            disk.status = disk.disk_status,
-                                            disk.status_name = disk_status_name(disk.disk_status),
-                                        );
-                                    }
-                                }
+                                info!(
+                                    event.name = "device.app.disk_status",
+                                    disk.model_serial = disk.model_serial.as_str(),
+                                    disk.model = disk.model.as_str(),
+                                    disk.drive_letter = disk.drive_letter.as_str(),
+                                    disk.size = disk.disk_size.as_str(),
+                                    disk.temperature_celsius = disk.temperature_celsius,
+                                    disk.temperature_class = disk.temperature_class.as_str(),
+                                    disk.status = disk.disk_status,
+                                    disk.status_name = disk_status_name(disk.disk_status),
+                                );
                             }
                             prev_last_update = Some(snapshot.last_update);
                         }
                     }
                     Ok(None) => {
                         warn!(
+                            registry_path = REGISTRY_PATH,
                             "CrystalDiskInfo registry key not found; is CrystalDiskInfo running with Gadget Support enabled?"
                         );
                     }
                     Err(e) => {
-                        warn!(?e, "failed to read registry");
+                        warn!(?e, registry_path = REGISTRY_PATH, "failed to read registry");
                     }
                 }
 

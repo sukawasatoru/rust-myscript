@@ -31,6 +31,16 @@ pub struct DiskEntry {
     pub disk_status: u32,
 }
 
+/// Parse CrystalDiskInfo gadget `Temperature` REG_SZ into Celsius.
+///
+/// Accepted examples:
+/// - `"45 °C"`, `"45 C"`, `"45C"`, `"+45 °C"`, `"-1 °C"` → Celsius as-is
+/// - `"113 °F"`, `"113 F"`, `"45 F"` → converted to Celsius
+///
+/// Returns `None` when:
+/// - unit is missing (`"45"`)
+/// - value is unknown (`"-- °C"`, `"-- C"`)
+/// - string is empty or otherwise unparseable
 pub fn parse_temperature(raw: &str) -> Option<f64> {
     let raw = raw.trim();
     let mut end = 0;
@@ -70,6 +80,22 @@ pub fn disk_status_name(status: u32) -> &'static str {
     }
 }
 
+/// `true` when `code` is HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND).
+pub fn is_not_found_hresult(code: i32) -> bool {
+    const ERROR_FILE_NOT_FOUND: u32 = 2;
+    const ERROR_PATH_NOT_FOUND: u32 = 3;
+    code == hresult_from_win32(ERROR_FILE_NOT_FOUND)
+        || code == hresult_from_win32(ERROR_PATH_NOT_FOUND)
+}
+
+const fn hresult_from_win32(error: u32) -> i32 {
+    if error as i32 <= 0 {
+        error as i32
+    } else {
+        ((error & 0x0000_FFFF) | (7 << 16) | 0x8000_0000) as i32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,17 +104,24 @@ mod tests {
     fn parse_temperature_celsius() {
         assert_eq!(parse_temperature("45 °C"), Some(45.0));
         assert_eq!(parse_temperature(" 0 °C"), Some(0.0));
+        assert_eq!(parse_temperature("41 C"), Some(41.0));
+        assert_eq!(parse_temperature("45C"), Some(45.0));
+        assert_eq!(parse_temperature("+45 °C"), Some(45.0));
+        assert_eq!(parse_temperature("-1 °C"), Some(-1.0));
     }
 
     #[test]
     fn parse_temperature_fahrenheit() {
         let c = parse_temperature("113 °F").unwrap();
         assert!((c - 45.0).abs() < 1e-9);
+        let c = parse_temperature("45 F").unwrap();
+        assert!((c - ((45.0 - 32.0) * 5.0 / 9.0)).abs() < 1e-9);
     }
 
     #[test]
     fn parse_temperature_unknown() {
         assert_eq!(parse_temperature("-- °C"), None);
+        assert_eq!(parse_temperature("-- C"), None);
         assert_eq!(parse_temperature("invalid"), None);
         assert_eq!(parse_temperature(""), None);
         assert_eq!(parse_temperature("45"), None);
@@ -101,5 +134,13 @@ mod tests {
         assert_eq!(disk_status_name(2), "caution");
         assert_eq!(disk_status_name(3), "bad");
         assert_eq!(disk_status_name(99), "unknown");
+    }
+
+    #[test]
+    fn is_not_found_hresult_codes() {
+        assert!(is_not_found_hresult(hresult_from_win32(2)));
+        assert!(is_not_found_hresult(hresult_from_win32(3)));
+        assert!(!is_not_found_hresult(hresult_from_win32(5))); // ACCESS_DENIED
+        assert!(!is_not_found_hresult(0));
     }
 }
