@@ -927,6 +927,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "windows-registry",
+ "windows-result",
 ]
 
 [[package]]

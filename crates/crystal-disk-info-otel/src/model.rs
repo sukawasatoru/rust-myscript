@@ -80,22 +80,6 @@ pub fn disk_status_name(status: u32) -> &'static str {
     }
 }
 
-/// `true` when `code` is HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND).
-pub fn is_not_found_hresult(code: i32) -> bool {
-    const ERROR_FILE_NOT_FOUND: u32 = 2;
-    const ERROR_PATH_NOT_FOUND: u32 = 3;
-    code == hresult_from_win32(ERROR_FILE_NOT_FOUND)
-        || code == hresult_from_win32(ERROR_PATH_NOT_FOUND)
-}
-
-const fn hresult_from_win32(error: u32) -> i32 {
-    if error as i32 <= 0 {
-        error as i32
-    } else {
-        ((error & 0x0000_FFFF) | (7 << 16) | 0x8000_0000) as i32
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,13 +118,5 @@ mod tests {
         assert_eq!(disk_status_name(2), "caution");
         assert_eq!(disk_status_name(3), "bad");
         assert_eq!(disk_status_name(99), "unknown");
-    }
-
-    #[test]
-    fn is_not_found_hresult_codes() {
-        assert!(is_not_found_hresult(hresult_from_win32(2)));
-        assert!(is_not_found_hresult(hresult_from_win32(3)));
-        assert!(!is_not_found_hresult(hresult_from_win32(5))); // ACCESS_DENIED
-        assert!(!is_not_found_hresult(0));
     }
 }

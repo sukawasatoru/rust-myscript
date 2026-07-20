@@ -22,6 +22,7 @@ url = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-registry = { workspace = true }
+windows-result = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

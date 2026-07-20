@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use crate::model::{DiskEntry, GadgetSnapshot, is_not_found_hresult, parse_temperature};
+use crate::model::{DiskEntry, GadgetSnapshot, parse_temperature};
 use anyhow::{Context as _, Result as Fallible};
 use tracing::warn;
 use windows_registry::CURRENT_USER;
@@ -24,7 +24,7 @@ pub const REGISTRY_PATH: &str = r"software\Crystal Dew World\CrystalDiskInfo";
 pub fn read_snapshot() -> Fallible<Option<GadgetSnapshot>> {
     let key = match CURRENT_USER.open(REGISTRY_PATH) {
         Ok(key) => key,
-        Err(e) if is_not_found_hresult(e.code().0) => return Ok(None),
+        Err(e) if is_registry_not_found(&e) => return Ok(None),
         Err(e) => {
             return Err(e).with_context(|| format!("failed to open registry path {REGISTRY_PATH}"));
         }
@@ -97,4 +97,62 @@ fn read_disk_entry(root: &windows_registry::Key, model_serial: &str) -> Fallible
         temperature_class,
         disk_status,
     })
+}
+
+fn is_registry_not_found<E: RegistryErrorCode>(e: &E) -> bool {
+    is_not_found_hresult(e.hresult_i32())
+}
+
+/// Local adapter so `read_snapshot` does not touch HRESULT internals directly.
+/// Implemented for the concrete error returned by `windows-registry`.
+trait RegistryErrorCode {
+    fn hresult_i32(&self) -> i32;
+}
+
+impl RegistryErrorCode for windows_result::Error {
+    fn hresult_i32(&self) -> i32 {
+        self.code().0
+    }
+}
+
+/// `true` when `code` is HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND).
+fn is_not_found_hresult(code: i32) -> bool {
+    const ERROR_FILE_NOT_FOUND: u32 = 2;
+    const ERROR_PATH_NOT_FOUND: u32 = 3;
+    code == hresult_from_win32(ERROR_FILE_NOT_FOUND)
+        || code == hresult_from_win32(ERROR_PATH_NOT_FOUND)
+}
+
+const fn hresult_from_win32(error: u32) -> i32 {
+    if error as i32 <= 0 {
+        error as i32
+    } else {
+        ((error & 0x0000_FFFF) | (7 << 16) | 0x8000_0000) as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_not_found_hresult_codes() {
+        assert!(is_not_found_hresult(hresult_from_win32(2)));
+        assert!(is_not_found_hresult(hresult_from_win32(3)));
+        assert!(!is_not_found_hresult(hresult_from_win32(5))); // ACCESS_DENIED
+        assert!(!is_not_found_hresult(0));
+    }
+
+    #[test]
+    fn is_registry_not_found_matches_file_and_path_not_found() {
+        let file_not_found =
+            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(2));
+        let path_not_found =
+            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(3));
+        let access_denied =
+            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(5));
+        assert!(is_registry_not_found(&file_not_found));
+        assert!(is_registry_not_found(&path_not_found));
+        assert!(!is_registry_not_found(&access_denied));
+    }
 }
