@@ -53,8 +53,8 @@ mime = "=0.3.17"
 num_cpus = "=1.17.0"
 opener = "=0.8.5"
 opentelemetry = { version = "=0.32.0", default-features = false }
-opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["rt-tokio", "logs"] }
-opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "logs", "reqwest-client"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["logs"] }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "logs", "reqwest-blocking-client"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-semantic-conventions = { version = "=0.32.0", features = ["semconv_experimental"] }
 pkg-config = "=0.3.33"
