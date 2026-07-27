@@ -32,12 +32,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-pub fn init_otel(
-    logs_endpoint: Url,
-    namespace: &'static str,
-    name: &'static str,
-) -> Fallible<OtelGuards> {
-    let logger_provider = create_logger_provider(create_resource(namespace, name), logs_endpoint)?;
+pub fn init_otel(logs_endpoint: Url, name: &'static str) -> Fallible<OtelGuards> {
+    let logger_provider = create_logger_provider(create_resource(name), logs_endpoint)?;
 
     tracing_subscriber::registry()
         .with(match std::env::var("RUST_LOG") {
@@ -61,7 +57,7 @@ pub fn init_otel(
     })
 }
 
-fn create_resource(namespace: &'static str, name: &'static str) -> Resource {
+fn create_resource(name: &'static str) -> Resource {
     let instance_id = hostname::get()
         .expect("hostname")
         .into_string()
@@ -71,7 +67,7 @@ fn create_resource(namespace: &'static str, name: &'static str) -> Resource {
     Resource::builder_empty()
         .with_schema_url(
             [
-                KeyValue::new(SERVICE_NAMESPACE, namespace),
+                KeyValue::new(SERVICE_NAMESPACE, env!("CARGO_PKG_NAME")),
                 KeyValue::new(SERVICE_NAME, name),
                 KeyValue::new(SERVICE_INSTANCE_ID, instance_id as &'static str),
                 KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),

@@ -140,9 +140,8 @@ async fn main() -> Fallible<()> {
             otel_logs_endpoint,
             value,
         } => {
-            let _guard = otel_logs_endpoint.and_then(|endpoint| {
-                init_otel(endpoint, env!("CARGO_PKG_NAME"), env!("CARGO_BIN_NAME")).ok()
-            });
+            let _guard = otel_logs_endpoint
+                .and_then(|endpoint| init_otel(endpoint, env!("CARGO_BIN_NAME")).ok());
 
             tokio::task::spawn_blocking(move || {
                 struct Context;

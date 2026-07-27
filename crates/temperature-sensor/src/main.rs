@@ -192,7 +192,6 @@ async fn main() -> Fallible<()> {
         Some(endpoint) => {
             let guard = init_otel(
                 endpoint,
-                env!("CARGO_PKG_NAME"),
                 if opt.otel_use_old_service_name {
                     "temperature-remo"
                 } else {

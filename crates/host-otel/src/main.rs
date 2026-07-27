@@ -42,7 +42,7 @@ async fn main() -> Fallible<()> {
 
     let _otel_guard = match opt.otel_logs_endpoint {
         Some(endpoint) => {
-            let guard = init_otel(endpoint, env!("CARGO_PKG_NAME"), env!("CARGO_BIN_NAME"))?;
+            let guard = init_otel(endpoint, env!("CARGO_BIN_NAME"))?;
             Some(guard)
         }
         None => {
