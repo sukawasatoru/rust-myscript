@@ -469,7 +469,7 @@ mod tests {
                 let text = result
                     .content
                     .first()
-                    .and_then(|c| c.raw.as_text())
+                    .and_then(|c| c.as_text())
                     .map(|t| t.text.to_string())
                     .unwrap_or_default();
                 bail!("tool error: {text}");
@@ -484,7 +484,7 @@ mod tests {
             let text = result
                 .content
                 .first()
-                .and_then(|c| c.raw.as_text())
+                .and_then(|c| c.as_text())
                 .map(|t| t.text.to_string())
                 .unwrap_or_default();
             Ok(serde_json::from_str(&text)?)

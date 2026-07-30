@@ -270,7 +270,7 @@ mod tests {
         let text = result
             .content
             .first()
-            .and_then(|c| c.raw.as_text())
+            .and_then(|c| c.as_text())
             .map(|t| t.text.to_owned());
 
         assert_eq!(
