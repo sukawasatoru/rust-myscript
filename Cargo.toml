@@ -30,25 +30,25 @@ rust-myscript = { path = "crates/rust-myscript", default-features = false }
 anyhow = "=1.0.104"
 async-stream = "=0.3.6"
 axum = { version = "=0.8.9", features = ["macros"] }
-base64 = "=0.23.0"
-blake2 = "=0.10.6"
-blake3 = { version = "1.8.5" }
+base64 = "=0.23.1"
+blake2 = "=0.11.0"
+blake3 = { version = "1.8.7" }
 bytes = "=1.12.1"
 chrono = { version = "=0.4.45", features = ["serde"] }
-clap = { version = "=4.6.4", features = ["derive", "env"] }
-clap_complete = "=4.6.8"
+clap = { version = "=4.6.6", features = ["derive", "env"] }
+clap_complete = "=4.6.9"
 digest = "=0.11.3"
 directories = "=6.0.0"
 dotenv = "=0.15.0"
 encoding_rs = "=0.8.35"
-futures = "=0.3.33"
+futures = "=0.3.34"
 hostname = "=0.4.2"
 hmac = "=0.13.0"
 indicatif = "=0.18.6"
 infer = "=0.22.0"
 libc = "=0.2.189"
 md-5 = "=0.11.0"
-mdns-sd = "=0.20.3"
+mdns-sd = "=0.21.0"
 mime = "=0.3.17"
 num_cpus = "=1.17.0"
 opener = "=0.8.5"
@@ -57,13 +57,13 @@ opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = 
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "logs", "reqwest-blocking-client"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-semantic-conventions = { version = "=0.32.1", features = ["semconv_experimental"] }
-pkg-config = "=0.3.33"
+pkg-config = "=0.3.34"
 rand = "=0.10.2"
 ratatui = "=0.30.2"
 regex = "=1.13.1"
 reqwest = { version = "=0.13.4", features = ["blocking", "json", "form", "brotli", "gzip", "deflate"] }
-rmcp = { version = "3.0.1", features = ["schemars", "transport-io", "client"] }
-rusqlite = { version = "=0.40.1", features = ["bundled-windows"] }
+rmcp = { version = "3.1.4", features = ["schemars", "transport-io", "client"] }
+rusqlite = { version = "=0.40.2", features = ["bundled-windows"] }
 semver = { version = "=1.0.28", features = ["serde"] }
 serde = { version = "=1.0.229", features = ["derive", "rc"] }
 serde_json = "=1.0.151"
@@ -82,7 +82,7 @@ tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 tree_magic_mini = "=3.2.2"
 trust-dns-resolver = "=0.23.2"
 url = { version = "=2.5.8", features = ["serde"] }
-uuid = { version = "=1.24.0", features = ["v4"] }
+uuid = { version = "=1.26.0", features = ["v4"] }
 walkdir = "2.5.0"
 axum-server = { version = "=0.8.0", features = ["tls-rustls"] }
 tower-http = { version = "=0.7.0", features = ["fs"] }
