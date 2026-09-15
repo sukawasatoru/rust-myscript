@@ -978,8 +978,10 @@ name = "dat-explorer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "encoding_rs",
+ "futures",
  "regex",
  "reqwest",
  "rmcp",
