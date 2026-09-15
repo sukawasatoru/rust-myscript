@@ -82,7 +82,7 @@ async fn main() -> rust_myscript::prelude::Fallible<()> {
                 )
             })?;
 
-            let _otel_guard = init_otel(endpoint, env!("CARGO_PKG_NAME"), env!("CARGO_BIN_NAME"))?;
+            let _otel_guard = init_otel(endpoint, env!("CARGO_BIN_NAME"))?;
 
             let mut prev_last_update: Option<u32> = None;
             loop {
