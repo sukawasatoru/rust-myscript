@@ -89,6 +89,7 @@ fn create_short_url(input: &Url) -> Fallible<Url> {
 }
 
 struct McpServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 

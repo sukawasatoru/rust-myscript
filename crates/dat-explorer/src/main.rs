@@ -195,6 +195,7 @@ struct FileInfoEntry {
 }
 
 struct McpServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     dat_dir: PathBuf,
     disable_body_limit: bool,
@@ -588,7 +589,7 @@ mod tests {
             .call("read_posts", json!({ "file": "630", "range": "1-2" }))
             .await?;
         assert_eq!(parsed["rows"].as_array().unwrap().len(), 2);
-        assert!(parsed["columns"].as_array().unwrap().len() > 0);
+        assert!(!parsed["columns"].as_array().unwrap().is_empty());
         assert_eq!(parsed["file_info"]["thread_num"], 630);
         assert!(parsed["file_info"]["date_range"].is_string());
         Ok(())

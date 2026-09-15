@@ -1307,7 +1307,7 @@ humidity_percent = 85.1
             ],
         };
 
-        assert_eq!(expected, parse_sensor_snapshot(&actual).unwrap());
+        assert_eq!(expected, parse_sensor_snapshot(actual).unwrap());
     }
 
     #[test]
@@ -1320,7 +1320,7 @@ name = "リビング"
 temperature_celsius = 20
 humidity_percent = 60
 "#;
-        let e = parse_sensor_snapshot(&actual).unwrap_err();
+        let e = parse_sensor_snapshot(actual).unwrap_err();
         assert!(e.to_string().contains("missing field `schema_version`"));
     }
 
@@ -1335,7 +1335,7 @@ name = "リビング"
 temperature_celsius = 20
 humidity_percent = 60
 "#;
-        let e = parse_sensor_snapshot(&actual).unwrap_err();
+        let e = parse_sensor_snapshot(actual).unwrap_err();
         assert!(e.to_string().contains("unsupported schema version: 2"));
     }
 
@@ -1349,7 +1349,7 @@ name = "リビング"
 temperature_celsius = 20
 humidity_percent = 60
 "#;
-        let e = parse_sensor_snapshot(&actual).unwrap_err();
+        let e = parse_sensor_snapshot(actual).unwrap_err();
         assert!(e.to_string().contains("missing field `collected_at`"));
     }
 
@@ -1363,7 +1363,7 @@ collected_at = "2014-11-28T21:00:09+09:00"
 temperature_celsius = 20
 humidity_percent = 60
 "#;
-        let e = parse_sensor_snapshot(&actual).unwrap_err();
+        let e = parse_sensor_snapshot(actual).unwrap_err();
         assert!(e.to_string().contains("missing field `name`"));
     }
 
@@ -1390,6 +1390,6 @@ name = "リビング"
             }],
         };
 
-        assert_eq!(expected, parse_sensor_snapshot(&actual).unwrap());
+        assert_eq!(expected, parse_sensor_snapshot(actual).unwrap());
     }
 }

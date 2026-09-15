@@ -212,6 +212,7 @@ struct SearchResultEntry {
 }
 
 struct McpServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     api_key: String,
     client: reqwest::Client,
