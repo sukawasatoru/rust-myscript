@@ -15,7 +15,7 @@
  */
 
 use clap::{Parser, ValueHint};
-use dat_explorer::feature::{fetch_dat, read_posts, search_posts};
+use dat_explorer::feature::{fetch_dat, fetch_subject, read_posts, search_posts};
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
@@ -152,6 +152,35 @@ struct FetchDatResponse {
     added_res_count: Option<usize>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct FetchSubjectToolParams {
+    /// subject.txt の URL。http または https のみ指定できる。
+    /// userinfo は指定可能。fragment は除去し、query は保持する。
+    /// 例: "https://fate.5ch.io/liveuranus/subject.txt"
+    url: String,
+
+    /// 指定した場合、スレッドタイトルに含まれるものだけを返す。
+    /// NCR 復元後のタイトルへの大小文字無視の部分一致。未指定または空文字は全件を返す。
+    #[serde(default)]
+    title_contains: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct FetchSubjectResponse {
+    /// subject.txt に現れる順のスレッド一覧
+    threads: Vec<SubjectThreadEntry>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct SubjectThreadEntry {
+    /// スレッドキー。先頭ゼロを保持するため文字列で返す
+    thread_id: String,
+    /// スレッドタイトル（NCR 復元後、trim しない）
+    title: String,
+    /// レス数
+    res_count: u64,
+}
+
 fn is_zero(v: &usize) -> bool {
     *v == 0
 }
@@ -166,18 +195,21 @@ struct FileInfoEntry {
 }
 
 struct McpServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     dat_dir: PathBuf,
     disable_body_limit: bool,
+    http_client: reqwest::Client,
 }
 
 #[tool_router]
 impl McpServer {
-    fn new(dat_dir: PathBuf, disable_body_limit: bool) -> Self {
+    fn new(dat_dir: PathBuf, disable_body_limit: bool, http_client: reqwest::Client) -> Self {
         Self {
             tool_router: Self::tool_router(),
             dat_dir,
             disable_body_limit,
+            http_client,
         }
     }
 
@@ -343,6 +375,38 @@ impl McpServer {
             added_res_count: result.added_res_count,
         }))
     }
+
+    /// 5ch の subject.txt（板のスレッド一覧）をインターネットから取得して UTF-8 で返す
+    #[tool(annotations(read_only_hint = true, open_world_hint = true))]
+    async fn fetch_subject(
+        &self,
+        params: Parameters<FetchSubjectToolParams>,
+    ) -> Result<Json<FetchSubjectResponse>, String> {
+        let p = &params.0;
+        let result = fetch_subject::fetch_subject(
+            &self.http_client,
+            &fetch_subject::FetchSubjectParams {
+                url: p.url.clone(),
+                title_contains: p.title_contains.clone(),
+            },
+        )
+        .await
+        .map_err(|e| {
+            warn!(?e, "fetch_subject failed");
+            format!("{e:#}")
+        })?;
+        Ok(Json(FetchSubjectResponse {
+            threads: result
+                .threads
+                .into_iter()
+                .map(|t| SubjectThreadEntry {
+                    thread_id: t.thread_id,
+                    title: t.title,
+                    res_count: t.res_count,
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[tool_handler]
@@ -358,7 +422,16 @@ impl ServerHandler for McpServer {
 }
 
 async fn run_mcp_server(dat_dir: PathBuf, disable_body_limit: bool) {
-    let server = McpServer::new(dat_dir, disable_body_limit).serve(rmcp::transport::stdio());
+    let http_client = match fetch_subject::build_client() {
+        Ok(client) => client,
+        Err(e) => {
+            error!(?e, "failed to initialize HTTP client");
+            return;
+        }
+    };
+
+    let server =
+        McpServer::new(dat_dir, disable_body_limit, http_client).serve(rmcp::transport::stdio());
     let running = match server.await {
         Ok(running) => running,
         Err(e) => {
@@ -389,7 +462,7 @@ mod tests {
 
     #[test]
     fn get_info_has_tools_capability() {
-        let server = McpServer::new(PathBuf::new(), false);
+        let server = McpServer::new(PathBuf::new(), false, reqwest::Client::new());
         let info = server.get_info();
         assert!(
             info.capabilities.tools.is_some(),
@@ -439,9 +512,10 @@ mod tests {
 
     impl McpTestContext {
         async fn new(dat_dir: PathBuf) -> Fallible<Self> {
+            let http_client = fetch_subject::build_client()?;
             let (server_transport, client_transport) = tokio::io::duplex(4096);
             let server_handle = tokio::spawn(async move {
-                McpServer::new(dat_dir, false)
+                McpServer::new(dat_dir, false, http_client)
                     .serve(server_transport)
                     .await?
                     .waiting()
@@ -456,20 +530,13 @@ mod tests {
         }
 
         async fn call(&self, tool: &str, args: serde_json::Value) -> Fallible<serde_json::Value> {
-            let tool_name = tool.to_string();
-            let result = self
-                .client
-                .call_tool(
-                    CallToolRequestParams::new(tool_name)
-                        .with_arguments(args.as_object().unwrap().clone()),
-                )
-                .await?;
+            let result = self.call_raw(tool, args).await?;
 
             if result.is_error.unwrap_or(false) {
                 let text = result
                     .content
                     .first()
-                    .and_then(|c| c.raw.as_text())
+                    .and_then(|c| c.as_text())
                     .map(|t| t.text.to_string())
                     .unwrap_or_default();
                 bail!("tool error: {text}");
@@ -484,10 +551,25 @@ mod tests {
             let text = result
                 .content
                 .first()
-                .and_then(|c| c.raw.as_text())
+                .and_then(|c| c.as_text())
                 .map(|t| t.text.to_string())
                 .unwrap_or_default();
             Ok(serde_json::from_str(&text)?)
+        }
+
+        async fn call_raw(
+            &self,
+            tool: &str,
+            args: serde_json::Value,
+        ) -> Fallible<rmcp::model::CallToolResult> {
+            let tool_name = tool.to_string();
+            Ok(self
+                .client
+                .call_tool(
+                    CallToolRequestParams::new(tool_name)
+                        .with_arguments(args.as_object().unwrap().clone()),
+                )
+                .await?)
         }
     }
 
@@ -507,7 +589,7 @@ mod tests {
             .call("read_posts", json!({ "file": "630", "range": "1-2" }))
             .await?;
         assert_eq!(parsed["rows"].as_array().unwrap().len(), 2);
-        assert!(parsed["columns"].as_array().unwrap().len() > 0);
+        assert!(!parsed["columns"].as_array().unwrap().is_empty());
         assert_eq!(parsed["file_info"]["thread_num"], 630);
         assert!(parsed["file_info"]["date_range"].is_string());
         Ok(())
@@ -565,6 +647,151 @@ mod tests {
 
         let result = ctx.call("search_posts", json!({})).await;
         assert!(result.is_err());
+        Ok(())
+    }
+
+    /// Spawns a local `subject.txt` server. Never connects to 5ch.
+    async fn spawn_subject_server(status: axum::http::StatusCode, body: Vec<u8>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = std::sync::Arc::new(body);
+        let router = axum::Router::new().route(
+            "/subject.txt",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move {
+                    (
+                        status,
+                        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                        body.as_ref().clone(),
+                    )
+                }
+            }),
+        );
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        format!("http://{addr}/subject.txt")
+    }
+
+    fn subject_body() -> Vec<u8> {
+        let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode(
+            "1234567890.dat<>テストスレッド★630  (649)\n\
+             1234567892.dat<>&#129402;絵文字テストスレッド&#129402;★631  (398)\n\
+             0000000001.dat<>Test Thread Alpha  (427)\n",
+        );
+        bytes.into_owned()
+    }
+
+    #[tokio::test]
+    async fn mcp_tools_list_has_fetch_subject() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+
+        let tools = ctx.client.list_all_tools().await?;
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "fetch_subject")
+            .expect("fetch_subject should be listed");
+
+        let properties = tool.input_schema.get("properties").unwrap();
+        assert!(properties.get("url").is_some());
+        assert!(properties.get("title_contains").is_some());
+        let required = tool
+            .input_schema
+            .get("required")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(required.iter().any(|v| v == "url"));
+        assert!(!required.iter().any(|v| v == "title_contains"));
+
+        let annotations = tool.annotations.as_ref().unwrap();
+        assert_eq!(annotations.read_only_hint, Some(true));
+        assert_eq!(annotations.open_world_hint, Some(true));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_fetch_subject() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+        let url = spawn_subject_server(axum::http::StatusCode::OK, subject_body()).await;
+
+        let parsed = ctx.call("fetch_subject", json!({ "url": url })).await?;
+        let threads = parsed["threads"].as_array().unwrap();
+        assert_eq!(threads.len(), 3);
+        assert_eq!(threads[0]["thread_id"], "1234567890");
+        assert_eq!(threads[0]["title"], "テストスレッド★630");
+        assert_eq!(threads[0]["res_count"], 649);
+        assert_eq!(threads[1]["title"], "🥺絵文字テストスレッド🥺★631");
+        assert_eq!(threads[2]["thread_id"], "0000000001");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_fetch_subject_title_contains() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+        let url = spawn_subject_server(axum::http::StatusCode::OK, subject_body()).await;
+
+        let parsed = ctx
+            .call(
+                "fetch_subject",
+                json!({ "url": url, "title_contains": "thread ALPHA" }),
+            )
+            .await?;
+        let threads = parsed["threads"].as_array().unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0]["title"], "Test Thread Alpha");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_fetch_subject_invalid_url_is_error() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+
+        let result = ctx
+            .call_raw(
+                "fetch_subject",
+                json!({ "url": "ftp://example.com/subject.txt" }),
+            )
+            .await?;
+        assert_eq!(result.is_error, Some(true));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_fetch_subject_http_error_is_error() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+        let url = spawn_subject_server(axum::http::StatusCode::NOT_FOUND, Vec::new()).await;
+
+        let result = ctx.call_raw("fetch_subject", json!({ "url": url })).await?;
+        assert_eq!(result.is_error, Some(true));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_fetch_subject_parse_error_is_error() -> Fallible<()> {
+        let test_dirs = create_test_dirs();
+        let ctx = McpTestContext::new(test_dirs.dat_dir.clone()).await?;
+        let url = spawn_subject_server(
+            axum::http::StatusCode::OK,
+            b"<html><body>Not Found</body></html>".to_vec(),
+        )
+        .await;
+
+        let result = ctx.call_raw("fetch_subject", json!({ "url": url })).await?;
+        assert_eq!(result.is_error, Some(true));
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .map(|t| t.text.to_string())
+            .unwrap_or_default();
+        assert!(text.contains("1 行目"), "{text}");
         Ok(())
     }
 }

@@ -16,7 +16,7 @@
 
 use base64::Engine;
 use clap::Parser;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use rand::distr::{Alphanumeric, SampleString};
 use rust_myscript::prelude::*;
 use sha1::Sha1;

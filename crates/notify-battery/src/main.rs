@@ -132,17 +132,17 @@ fn get_hostname() -> Fallible<String> {
 }
 
 fn parse_line(context: &Context, line: &str) -> Option<PSInfo> {
-    let battery_level = match context.battery_level_regex.captures(line) {
-        Some(data) => match data.get(1).unwrap().as_str().parse() {
+    let battery_level = {
+        let data = context.battery_level_regex.captures(line)?;
+        match data.get(1).unwrap().as_str().parse() {
             Ok(data) => data,
             Err(_) => return None,
-        },
-        None => return None,
+        }
     };
 
-    let battery_remaining = match context.battery_remaining_regex.captures(line) {
-        Some(data) => data.get(1).unwrap().as_str().to_owned(),
-        None => return None,
+    let battery_remaining = {
+        let data = context.battery_remaining_regex.captures(line)?;
+        data.get(1).unwrap().as_str().to_owned()
     };
 
     let charging = context.charging_regex.captures(line).is_some();

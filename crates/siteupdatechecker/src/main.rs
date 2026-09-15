@@ -63,7 +63,7 @@ struct CheckOk {
 
 #[derive(Debug)]
 struct CheckError {
-    site: Site,
+    site: Box<Site>,
     source: anyhow::Error,
 }
 
@@ -154,7 +154,7 @@ async fn main() -> Fallible<()> {
 
     let otel_guard = match opt.otel_logs_endpoint {
         Some(endpoint) => {
-            let guard = init_otel(endpoint, env!("CARGO_PKG_NAME"), env!("CARGO_BIN_NAME"))?;
+            let guard = init_otel(endpoint, env!("CARGO_BIN_NAME"))?;
             Some(guard)
         }
         None => {
@@ -200,7 +200,7 @@ async fn main() -> Fallible<()> {
             },
             Err(e) => {
                 info!(?e.source, "error caused: {}", &e.site.title);
-                let site = Rc::new(e.site);
+                let site = Rc::new(*e.site);
                 new_prefs.push(site.clone());
                 error_sites.push((site, e.source));
             }
@@ -248,7 +248,7 @@ async fn main() -> Fallible<()> {
         otel_log_body.push_str("  (none)\n");
     } else {
         for (site, e) in error_sites.iter() {
-            println!("#   {}\n#     reason: {}", site.title, &e);
+            println!("#   {}\n#     reason: {}", site.title, e);
             otel_log_body.push_str("  ");
             otel_log_body.push_str(&site.title);
             otel_log_body.push_str("\n    ");
@@ -337,7 +337,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
             }
             Err(e) => {
                 return Err(CheckError {
-                    site,
+                    site: Box::new(site),
                     source: anyhow!(e).context("failed to parse a date string to a header value"),
                 });
             }
@@ -350,7 +350,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
             }
             Err(e) => {
                 return Err(CheckError {
-                    site,
+                    site: Box::new(site),
                     source: anyhow!(e).context("failed to parse a etag string to a header value"),
                 });
             }
@@ -361,7 +361,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
         Ok(data) => data,
         Err(e) => {
             return Err(CheckError {
-                site,
+                site: Box::new(site),
                 source: anyhow!(e).context("failed to send request"),
             });
         }
@@ -387,7 +387,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
-                            site,
+                            site: Box::new(site),
                             source: anyhow!(e).context("failed to parse a date to string (200)"),
                         });
                     }
@@ -396,7 +396,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
-                            site,
+                            site: Box::new(site),
                             source: anyhow!(e).context("failed to parse a etag to string (200)"),
                         });
                     }
@@ -411,7 +411,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
-                            site,
+                            site: Box::new(site),
                             source: anyhow!(e).context("failed to parse a date to string (304)"),
                         });
                     }
@@ -420,7 +420,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
                     Ok(data) => data,
                     Err(e) => {
                         return Err(CheckError {
-                            site,
+                            site: Box::new(site),
                             source: anyhow!(e).context("failed to parse a etag to string (304)"),
                         });
                     }
@@ -429,7 +429,7 @@ async fn check_site_head(client: reqwest::Client, site: Site) -> Result<CheckOk,
             },
         }),
         _ => Err(CheckError {
-            site,
+            site: Box::new(site),
             source: anyhow!("unexpected status code: {}", status_code.as_u16()),
         }),
     }
@@ -440,7 +440,7 @@ async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk,
         Ok(data) => data,
         Err(e) => {
             return Err(CheckError {
-                site,
+                site: Box::new(site),
                 source: anyhow!(e).context("failed to send request"),
             });
         }
@@ -449,7 +449,7 @@ async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk,
     let status_code = response.status();
     if status_code != StatusCode::OK {
         return Err(CheckError {
-            site,
+            site: Box::new(site),
             source: anyhow!("unexpected status code: {}", status_code.as_u16()),
         });
     }
@@ -458,7 +458,7 @@ async fn check_site_hash(client: reqwest::Client, site: Site) -> Result<CheckOk,
         Ok(data) => data,
         Err(e) => {
             return Err(CheckError {
-                site,
+                site: Box::new(site),
                 source: anyhow!(e).context("failed to parse response"),
             });
         }

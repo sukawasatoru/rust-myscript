@@ -16,6 +16,6 @@ dotenv = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 rust-myscript = { workspace = true }
-sha-1 = { workspace = true }
+sha1 = { workspace = true }
 tinytable-rs = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -15,5 +15,6 @@
  */
 
 pub mod fetch_dat;
+pub mod fetch_subject;
 pub mod read_posts;
 pub mod search_posts;

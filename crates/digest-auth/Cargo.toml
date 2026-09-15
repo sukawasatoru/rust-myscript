@@ -16,7 +16,7 @@ dotenv = { workspace = true }
 md-5 = { workspace = true }
 rust-myscript = { workspace = true }
 serde = { workspace = true }
-sha-1 = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
