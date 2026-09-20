@@ -25,7 +25,8 @@ jobs:
       - if: ${{ matrix.os == 'ubuntu-latest' }}
         run: sudo apt-get install libsqlite3-dev
       - run: cargo build --locked --release
-      - run: cargo test --locked --features test-helpers
+      - if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo test --locked --features test-helpers
       - if: ${{ matrix.os == 'windows-latest' }}
         uses: actions/upload-artifact@v7
         with:
@@ -34,6 +35,15 @@ jobs:
             target/release/filededuplication.exe
             target/release/crystal-disk-info-otel.exe
           if-no-files-found: error
+  windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-test
+      - run: cargo test --locked --features test-helpers
   rustfmt:
     runs-on: ubuntu-latest
     timeout-minutes: 20
