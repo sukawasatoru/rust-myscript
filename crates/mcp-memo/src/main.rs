@@ -14,349 +14,117 @@
  * limitations under the License.
  */
 
-use chrono::Local;
-use clap::{Parser, ValueHint};
-use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
-use rmcp::schemars::{self, JsonSchema};
-use rmcp::{ServerHandler, ServiceExt as _, tool, tool_handler, tool_router};
-use rust_myscript::prelude::*;
-use serde::Deserialize;
+use clap::{Parser, Subcommand, ValueHint};
 use std::path::PathBuf;
-use tracing::{Level, instrument};
+use std::process::ExitCode;
+use tracing::Level;
 
-const MAX_BACKUP_COUNT: usize = 5;
-
+/// セッションをまたいでメモを保存・参照できる MCP サーバー。
+///
+/// 覚えておきたい情報をキー付きのメモとして保存し、別のセッションから参照できます。
+/// MCP クライアントから、メモの保存・取得・部分編集・削除と、キーの一覧表示ができます。
+/// 同じメモを使い続けるには、同じ保存先を指定してください。
+///
+/// 保存先:
+/// メモは指定したディレクトリに保存します。新しい保存先は自動で初期化します。
+/// 旧形式のデータがある場合は、利用前に移行が必要です。
+/// 移行手順は mcp-memo <data_dir> migrate --help を参照してください。
+///
+/// 変更履歴:
+/// メモの作成・更新・削除は自動で Git 履歴に記録します。
+/// 履歴は git -C <data_dir> log などで確認できます。
+/// MCP 経由での履歴の取得・復元には対応していません。
+///
+/// 利用上の注意:
+/// 履歴の保存に失敗した場合、エラーでもメモ自体は変更されていることがあります。
+/// 再試行する前に get_memo で現在の内容を確認してください。
+/// 実行中は、外部エディターや Git コマンドで保存先を変更しないでください。
 #[derive(Debug, Parser)]
+#[command(verbatim_doc_comment)]
 struct Opt {
-    /// Directory to store memos.
+    /// メモと変更履歴を保存するディレクトリ。
     #[clap(value_hint = ValueHint::DirPath)]
     data_dir: PathBuf,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// 旧形式のメモとバックアップを、新しい履歴管理方式へ移行します。
+    ///
+    /// 旧サーバーをすべて停止し、保存先全体をバックアップしてから実行してください。
+    /// まず --dry-run で移行対象を確認し、問題がなければ移行を実行します。
+    ///
+    /// 実行手順:
+    ///   mcp-memo <data_dir> migrate --dry-run
+    ///   mcp-memo <data_dir> migrate
+    ///
+    /// 旧バックアップは、ファイル名の日時を日本時間（UTC+09:00）として履歴に取り込みます。
+    /// 現在のメモは移行時点の日時で記録します。
+    /// 現在のメモは変更・削除せず、削除済みのメモも復活させません。
+    /// 移行成功後、取り込み済みの旧バックアップだけを削除します。
+    /// 対象外のファイルは残し、ディレクトリは空になった場合だけ削除します。
+    ///
+    /// 保存先直下と backup/<key>/ 内の .txt ファイルを対象にします。
+    /// 移行対象が読み込めない、または形式が不正な場合は、移行を中止します。
+    /// 削除に失敗しても履歴への移行は完了しています。原因を解消して再実行してください。
+    /// 移行済みの場合、履歴は追加せず、取り込み時と内容が一致する旧バックアップだけを削除します。
+    #[command(verbatim_doc_comment)]
+    Migrate {
+        /// 入力を検証して件数を表示し、Git 履歴の作成や旧バックアップの削除は行いません。
+        ///
+        /// 排他用の .mcp-memo.lock は作成します。
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_max_level(Level::INFO)
         .init();
 
     let opt = Opt::parse();
-    let data_dir = opt.data_dir;
-    if let Err(e) = tokio::fs::create_dir_all(&data_dir).await {
-        error!(?e, path = %data_dir.display(), "failed to create data directory");
-        return;
-    }
-
-    info!(data_dir = %data_dir.display(), "data directory");
-
-    let running = match MemoServer::new(data_dir)
-        .serve(rmcp::transport::stdio())
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            error!(?e, "failed to initialize MCP server");
-            return;
-        }
-    };
-    if let Err(e) = running.waiting().await {
-        error!(?e, "MCP server task panicked");
-    }
-}
-
-#[derive(Debug, Clone)]
-struct MemoServer {
-    data_dir: PathBuf,
-
-    #[allow(dead_code)]
-    tool_router: ToolRouter<Self>,
-}
-
-impl MemoServer {
-    fn new(data_dir: PathBuf) -> Self {
-        Self {
-            data_dir,
-            tool_router: Self::tool_router(),
-        }
-    }
-
-    fn backup_dir(&self, key: &str) -> PathBuf {
-        self.data_dir.join("backup").join(key)
-    }
-
-    async fn backup_memo(&self, path: &std::path::Path, key: &str) {
-        let backup_dir = self.backup_dir(key);
-        if let Err(e) = tokio::fs::create_dir_all(&backup_dir).await {
-            warn!(?e, %key, "failed to create backup directory");
-            return;
-        }
-        // Nanosecond precision makes collisions extremely unlikely in practice.
-        // If collisions become a concern, consider using UUIDs or a sequence number instead.
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S_%9f").to_string();
-        let backup_path = backup_dir.join(format!("{timestamp}.txt"));
-        if let Err(e) = tokio::fs::rename(path, &backup_path).await {
-            warn!(?e, %key, "failed to backup memo");
-            return;
-        }
-        // Prune old backups beyond MAX_BACKUP_COUNT
-        let Ok(mut entries) = tokio::fs::read_dir(&backup_dir).await else {
-            return;
-        };
-        let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            names.push(entry.file_name().to_string_lossy().to_string());
-        }
-        names.sort();
-        for name in names
-            .iter()
-            .take(names.len().saturating_sub(MAX_BACKUP_COUNT))
-        {
-            let old = backup_dir.join(name);
-            if let Err(e) = tokio::fs::remove_file(&old).await {
-                warn!(?e, %key, "failed to remove old backup");
-            }
-        }
-    }
-
-    fn key_to_path(&self, key: &str) -> Fallible<PathBuf> {
-        // Validate key: only alphanumeric, hyphens, underscores, and dots allowed
-        if key.is_empty() {
-            bail!("key must not be empty");
-        }
-        if !key
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-        {
-            bail!("key must contain only alphanumeric characters, hyphens, underscores, or dots");
-        }
-        Ok(self.data_dir.join(format!("{key}.txt")))
-    }
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct GetMemoRequest {
-    /// The key of the memo to retrieve.
-    key: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct SetMemoRequest {
-    /// The key of the memo to store.
-    key: String,
-    /// The content to store.
-    content: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct DeleteMemoRequest {
-    /// The key of the memo to delete.
-    key: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct EditMemoRequest {
-    /// The key of the memo to edit.
-    key: String,
-    /// The string to find and replace (must occur exactly once).
-    old: String,
-    /// The replacement string.
-    new: String,
-}
-
-#[tool_router]
-impl MemoServer {
-    /// Get the content of a memo by key.
-    #[tool]
-    #[instrument(skip(self))]
-    async fn get_memo(
-        &self,
-        Parameters(req): Parameters<GetMemoRequest>,
-    ) -> Result<String, String> {
-        let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
-        match tokio::fs::read_to_string(&path).await {
-            Ok(content) => Ok(content),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Err(format!("memo '{}' not found", req.key))
-            }
-            Err(e) => {
-                warn!(?e, key = %req.key, "failed to read memo");
-                Err(format!("failed to read memo '{}'", req.key))
-            }
-        }
-    }
-
-    /// Store content into a memo by key.
-    #[tool]
-    #[instrument(skip(self))]
-    async fn set_memo(
-        &self,
-        Parameters(req): Parameters<SetMemoRequest>,
-    ) -> Result<String, String> {
-        let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
-        if tokio::fs::metadata(&path).await.is_ok() {
-            // TOCTOU: the file could be removed between the metadata check and rename inside
-            // backup_memo, but rename's NotFound is already handled gracefully there, so this
-            // is acceptable for now.
-            // backup_memo failures are intentionally non-fatal: a warn! is emitted and the
-            // write proceeds so that memo updates are never blocked by backup errors.
-            self.backup_memo(&path, &req.key).await;
-        }
-        if let Err(e) = tokio::fs::write(&path, &req.content).await {
-            warn!(?e, key = %req.key, "failed to write memo");
-            return Err(format!("failed to write memo '{}'", req.key));
-        }
-        Ok(format!("Stored memo '{}'", req.key))
-    }
-
-    /// Delete a memo by key.
-    #[tool]
-    #[instrument(skip(self))]
-    async fn delete_memo(
-        &self,
-        Parameters(req): Parameters<DeleteMemoRequest>,
-    ) -> Result<String, String> {
-        let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
-        let existed = tokio::fs::metadata(&path).await.is_ok();
-        if existed {
-            // TOCTOU: the file could be removed between the metadata check and rename inside
-            // backup_memo, but rename's NotFound is already handled gracefully there, so this
-            // is acceptable for now.
-            // backup_memo failures are intentionally non-fatal: a warn! is emitted and the
-            // delete proceeds so that deletes are never blocked by backup errors.
-            self.backup_memo(&path, &req.key).await;
-        }
-        match tokio::fs::remove_file(&path).await {
-            Ok(()) => Ok(format!("Deleted memo '{}'", req.key)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                if existed {
-                    // The memo was backed up via rename, so it is considered deleted.
-                    Ok(format!("Deleted memo '{}'", req.key))
-                } else {
-                    Err(format!("memo '{}' not found", req.key))
-                }
-            }
-            Err(e) => {
-                warn!(?e, key = %req.key, "failed to delete memo");
-                Err(format!("failed to delete memo '{}'", req.key))
-            }
-        }
-    }
-
-    /// Edit a memo by replacing a single occurrence of `old` with `new`.
-    #[tool]
-    #[instrument(skip(self))]
-    async fn edit_memo(
-        &self,
-        Parameters(req): Parameters<EditMemoRequest>,
-    ) -> Result<String, String> {
-        if req.old.is_empty() {
-            return Err("old must not be empty".to_string());
-        }
-        let path = self.key_to_path(&req.key).map_err(|e| e.to_string())?;
-        let content = match tokio::fs::read_to_string(&path).await {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(format!("memo '{}' not found", req.key));
-            }
-            Err(e) => {
-                warn!(?e, key = %req.key, "failed to read memo");
-                return Err(format!("failed to read memo '{}'", req.key));
-            }
-        };
-
-        let first = match content.find(&req.old) {
-            Some(p) => p,
-            None => {
-                return Err(format!("old text not found in memo '{}'", req.key));
-            }
-        };
-        // Check for a second occurrence (including overlapping ones) by advancing only one char.
-        let mut second_search_start = first;
-        if let Some((delta, _)) = content[second_search_start..].char_indices().nth(1) {
-            second_search_start += delta;
-        } else {
-            second_search_start = content.len();
-        }
-        if second_search_start < content.len() && content[second_search_start..].contains(&req.old)
-        {
-            return Err(format!(
-                "old text occurs multiple times in memo '{}'",
-                req.key
-            ));
-        }
-
-        if tokio::fs::metadata(&path).await.is_ok() {
-            self.backup_memo(&path, &req.key).await;
-        }
-
-        let mut new_content = content.clone();
-        new_content.replace_range(first..first + req.old.len(), &req.new);
-
-        if let Err(e) = tokio::fs::write(&path, &new_content).await {
-            warn!(?e, key = %req.key, "failed to write memo");
-            return Err(format!("failed to write memo '{}'", req.key));
-        }
-        Ok(format!("Edited memo '{}'", req.key))
-    }
-
-    /// List all memo keys.
-    #[tool]
-    #[instrument(skip(self))]
-    async fn list_memos(&self) -> Result<String, String> {
-        let mut entries = match tokio::fs::read_dir(&self.data_dir).await {
-            Ok(e) => e,
-            Err(e) => {
-                warn!(?e, "failed to read data directory");
-                return Err("failed to read memo list".to_string());
-            }
-        };
-        let mut keys = Vec::new();
-        loop {
-            match entries.next_entry().await {
-                Ok(Some(entry)) => {
-                    let name = entry.file_name();
-                    let name = name.to_string_lossy();
-                    // Check file type to avoid accidentally listing subdirectories (e.g. "backup")
-                    // that might have a .txt suffix in the future.
-                    let is_file = entry
-                        .file_type()
-                        .await
-                        .map(|t| t.is_file())
-                        .unwrap_or(false);
-                    if is_file && let Some(key) = name.strip_suffix(".txt") {
-                        keys.push(key.to_string());
+    let result =
+        match opt.command {
+            None => mcp_memo::run_mcp_server(opt.data_dir).await,
+            Some(Command::Migrate { dry_run }) => mcp_memo::migrate(opt.data_dir, dry_run)
+                .await
+                .map(|report| {
+                    if report.already_migrated {
+                        eprintln!(
+                            "Migration already completed; {} imported backups {}.",
+                            report.backup_count,
+                            if report.dry_run {
+                                "would be removed"
+                            } else {
+                                "removed"
+                            }
+                        );
+                    } else {
+                        eprintln!(
+                            "{}: {} backups, {} current memos (legacy timezone: Asia/Tokyo).",
+                            if report.dry_run {
+                                "Dry run"
+                            } else {
+                                "Migration completed"
+                            },
+                            report.backup_count,
+                            report.memo_count
+                        );
                     }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    warn!(?e, "failed to read directory entry");
-                    return Err("failed to read memo list".to_string());
-                }
-            }
+                }),
+        };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e:#}");
+            ExitCode::FAILURE
         }
-        keys.sort();
-        if keys.is_empty() {
-            Ok("No memos stored.".to_string())
-        } else {
-            Ok(keys.join("\n"))
-        }
-    }
-}
-
-#[tool_handler]
-impl ServerHandler for MemoServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(
-                "A memo server for storing and retrieving temporary notes by key. \
-                Useful for preserving context, intermediate results, or reminders across tasks.",
-            )
     }
 }
 
@@ -364,432 +132,70 @@ impl ServerHandler for MemoServer {
 mod tests {
     use super::*;
     use clap::CommandFactory;
-    use rmcp::model::CallToolRequestParams;
-    use rmcp::service::RunningService;
-    use rmcp::{ClientHandler, RoleClient};
-    use serde_json::json;
-    use tempfile::tempdir;
+
+    #[test]
+    fn long_help_includes_storage_documentation() {
+        let error = Opt::try_parse_from(["mcp-memo", "--help"]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = error.to_string();
+        for text in [
+            "セッションをまたいでメモを保存・参照できる MCP サーバー。",
+            "同じ保存先を指定してください",
+            "mcp-memo <data_dir> migrate --help",
+            "保存先:",
+            "変更履歴:",
+            "git -C <data_dir> log",
+            "利用上の注意:",
+            "エラーでもメモ自体は変更されていることがあります",
+            "get_memo で現在の内容を確認してください",
+            "メモと変更履歴を保存するディレクトリ。",
+        ] {
+            assert!(help.contains(text), "missing help text: {text}\n{help}");
+        }
+        assert!(!help.contains("ディスク故障"));
+        assert!(!help.contains(".git/mcp-memo-format"));
+    }
+
+    #[test]
+    fn migration_help_includes_procedure_and_cautions() {
+        let error = Opt::try_parse_from(["mcp-memo", "/data", "migrate", "--help"]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = error.to_string();
+        for text in [
+            "旧サーバーをすべて停止",
+            "保存先全体をバックアップしてから実行してください",
+            "  mcp-memo <data_dir> migrate --dry-run\n  mcp-memo <data_dir> migrate",
+            "UTC+09:00",
+            "現在のメモは移行時点の日時で記録します",
+            "現在のメモは変更・削除せず",
+            "取り込み済みの旧バックアップだけを削除します",
+            "対象外のファイルは残し",
+            "ディレクトリは空になった場合だけ削除します",
+            "復活させません",
+            "移行対象が読み込めない、または形式が不正な場合は、移行を中止します",
+            "Git 履歴の作成や旧バックアップの削除は行いません",
+            ".mcp-memo.lock",
+            "原因を解消して再実行してください",
+            "移行済みの場合、履歴は追加せず",
+        ] {
+            assert!(help.contains(text), "missing help text: {text}\n{help}");
+        }
+    }
 
     #[test]
     fn opt_should_parse_valid_args() {
         Opt::command().debug_assert();
-    }
-
-    #[derive(Debug, Clone, Default)]
-    struct DummyClientHandler;
-    impl ClientHandler for DummyClientHandler {}
-
-    struct McpTestContext {
-        client: RunningService<RoleClient, DummyClientHandler>,
-        server_handle: tokio::task::JoinHandle<()>,
-    }
-
-    impl McpTestContext {
-        async fn new(data_dir: PathBuf) -> Self {
-            let (server_transport, client_transport) = tokio::io::duplex(4096);
-            let server_handle = tokio::spawn(async move {
-                MemoServer::new(data_dir)
-                    .serve(server_transport)
-                    .await
-                    .unwrap()
-                    .waiting()
-                    .await
-                    .unwrap();
-            });
-            let client = DummyClientHandler.serve(client_transport).await.unwrap();
-            Self {
-                client,
-                server_handle,
-            }
-        }
-
-        async fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, String> {
-            let result = self
-                .client
-                .call_tool(
-                    CallToolRequestParams::new(tool.to_string())
-                        .with_arguments(args.as_object().unwrap().clone()),
-                )
-                .await
-                .unwrap();
-            let text = result
-                .content
-                .first()
-                .and_then(|c| c.as_text())
-                .map(|t| t.text.to_string())
-                .unwrap_or_default();
-            if result.is_error.unwrap_or(false) {
-                return Err(text);
-            }
-            Ok(text)
-        }
-    }
-
-    impl Drop for McpTestContext {
-        fn drop(&mut self) {
-            self.server_handle.abort();
-            self.client.cancellation_token().cancel();
-        }
-    }
-
-    #[tokio::test]
-    async fn get_memo_should_return_stored_content() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "hello", "content": "world" }))
-            .await
-            .unwrap();
-        let result = ctx
-            .call("get_memo", json!({ "key": "hello" }))
-            .await
-            .unwrap();
-        assert_eq!(result, "world");
-    }
-
-    #[tokio::test]
-    async fn get_memo_should_fail_for_invalid_key() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("get_memo", json!({ "key": "../etc/passwd" }))
-            .await
-            .unwrap_err();
-    }
-
-    #[tokio::test]
-    async fn set_memo_should_return_stored_message() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        let result = ctx
-            .call("set_memo", json!({ "key": "hello", "content": "world" }))
-            .await
-            .unwrap();
-        assert_eq!(result, "Stored memo 'hello'");
-    }
-
-    #[tokio::test]
-    async fn set_memo_should_backup_existing_memo() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "note", "content": "v1" }))
-            .await
-            .unwrap();
-        ctx.call("set_memo", json!({ "key": "note", "content": "v2" }))
-            .await
-            .unwrap();
-
-        // Current memo should be v2
-        let result = ctx
-            .call("get_memo", json!({ "key": "note" }))
-            .await
-            .unwrap();
-        assert_eq!(result, "v2");
-
-        // Backup directory should contain one file with content v1
-        let backup_dir = dir.path().join("backup").join("note");
-        let mut entries = std::fs::read_dir(&backup_dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect::<Vec<_>>();
-        entries.sort();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1");
-    }
-
-    #[tokio::test]
-    async fn set_memo_should_prune_old_backups_beyond_max_count() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        // Write 7 times; backup should be capped at MAX_BACKUP_COUNT (5)
-        for i in 1..=7u32 {
-            ctx.call(
-                "set_memo",
-                json!({ "key": "prune", "content": format!("v{i}") }),
-            )
-            .await
-            .unwrap();
-        }
-
-        let backup_dir = dir.path().join("backup").join("prune");
-        let count = std::fs::read_dir(&backup_dir).unwrap().count();
-        assert_eq!(count, 5);
-    }
-
-    #[tokio::test]
-    async fn list_memos_should_return_all_keys() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        let result = ctx.call("list_memos", json!({})).await.unwrap();
-        assert_eq!(result, "No memos stored.");
-
-        ctx.call("set_memo", json!({ "key": "alpha", "content": "a" }))
-            .await
-            .unwrap();
-        ctx.call("set_memo", json!({ "key": "beta", "content": "b" }))
-            .await
-            .unwrap();
-
-        let result = ctx.call("list_memos", json!({})).await.unwrap();
-        assert_eq!(result, "alpha\nbeta");
-    }
-
-    #[tokio::test]
-    async fn delete_memo_should_remove_memo() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "tmp", "content": "data" }))
-            .await
-            .unwrap();
-        let result = ctx
-            .call("delete_memo", json!({ "key": "tmp" }))
-            .await
-            .unwrap();
-        assert_eq!(result, "Deleted memo 'tmp'");
-
-        let err = ctx
-            .call("get_memo", json!({ "key": "tmp" }))
-            .await
-            .unwrap_err();
-        assert!(err.contains("not found"));
-    }
-
-    #[tokio::test]
-    async fn delete_memo_should_backup_existing_memo() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "note", "content": "v1" }))
-            .await
-            .unwrap();
-        let result = ctx
-            .call("delete_memo", json!({ "key": "note" }))
-            .await
-            .unwrap();
-        assert_eq!(result, "Deleted memo 'note'");
-
-        // Memo should be gone
-        let err = ctx
-            .call("get_memo", json!({ "key": "note" }))
-            .await
-            .unwrap_err();
-        assert!(err.contains("not found"));
-
-        // Backup directory should contain one file with content v1
-        let backup_dir = dir.path().join("backup").join("note");
-        let mut entries = std::fs::read_dir(&backup_dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect::<Vec<_>>();
-        entries.sort();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1");
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_replace_single_occurrence() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call(
-            "set_memo",
-            json!({ "key": "doc", "content": "hello world" }),
-        )
-        .await
-        .unwrap();
-        let result = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "world", "new": "rust" }),
-            )
-            .await
-            .unwrap();
-        assert_eq!(result, "Edited memo 'doc'");
-
-        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
-        assert_eq!(content, "hello rust");
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_when_old_occurs_multiple_times() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "ab ab ab" }))
-            .await
-            .unwrap();
-        let err = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "ab", "new": "X" }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.contains("multiple times"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_when_memo_not_found() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        let err = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "missing", "old": "x", "new": "y" }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.contains("not found"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_when_old_not_found() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "hello" }))
-            .await
-            .unwrap();
-        let err = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "world", "new": "rust" }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.contains("not found"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_backup_before_edit() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "note", "content": "v1 text" }))
-            .await
-            .unwrap();
-        ctx.call(
-            "edit_memo",
-            json!({ "key": "note", "old": "v1", "new": "v2" }),
-        )
-        .await
-        .unwrap();
-
-        let content = ctx
-            .call("get_memo", json!({ "key": "note" }))
-            .await
-            .unwrap();
-        assert_eq!(content, "v2 text");
-
-        let backup_dir = dir.path().join("backup").join("note");
-        let mut entries = std::fs::read_dir(&backup_dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect::<Vec<_>>();
-        entries.sort();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(std::fs::read_to_string(&entries[0]).unwrap(), "v1 text");
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_for_empty_old() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "abc" }))
-            .await
-            .unwrap();
-        let err = ctx
-            .call("edit_memo", json!({ "key": "doc", "old": "", "new": "x" }))
-            .await
-            .unwrap_err();
-        assert!(err.contains("old must not be empty"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_replace_multiline_text() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call(
-            "set_memo",
-            json!({ "key": "doc", "content": "header\nbody\nfooter" }),
-        )
-        .await
-        .unwrap();
-        let result = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "body\nfooter", "new": "newbody\nnewfooter" }),
-            )
-            .await
-            .unwrap();
-        assert_eq!(result, "Edited memo 'doc'");
-
-        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
-        assert_eq!(content, "header\nnewbody\nnewfooter");
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_when_multiline_old_occurs_multiple_times() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "a\nb\na\nb" }))
-            .await
-            .unwrap();
-        let err = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "a\nb", "new": "X" }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.contains("multiple times"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_fail_when_overlapping_occurrence() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "ああああ" }))
-            .await
-            .unwrap();
-        let err = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "あああ", "new": "X" }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.contains("multiple times"));
-    }
-
-    #[tokio::test]
-    async fn edit_memo_should_succeed_for_non_overlapping_single() {
-        let dir = tempdir().unwrap();
-        let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
-
-        ctx.call("set_memo", json!({ "key": "doc", "content": "ああああ" }))
-            .await
-            .unwrap();
-        let result = ctx
-            .call(
-                "edit_memo",
-                json!({ "key": "doc", "old": "ああああ", "new": "X" }),
-            )
-            .await
-            .unwrap();
-        assert_eq!(result, "Edited memo 'doc'");
-
-        let content = ctx.call("get_memo", json!({ "key": "doc" })).await.unwrap();
-        assert_eq!(content, "X");
+        assert!(
+            Opt::try_parse_from(["mcp-memo", "/data"])
+                .unwrap()
+                .command
+                .is_none()
+        );
+        assert!(matches!(
+            Opt::try_parse_from(["mcp-memo", "/data", "migrate", "--dry-run"])
+                .unwrap()
+                .command,
+            Some(Command::Migrate { dry_run: true })
+        ));
     }
 }
