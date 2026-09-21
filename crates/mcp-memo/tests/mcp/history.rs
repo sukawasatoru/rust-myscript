@@ -17,6 +17,89 @@
 use super::*;
 
 #[tokio::test]
+async fn a_foreign_file_does_not_block_writes_or_enter_history() {
+    let dir = tempdir().unwrap();
+    let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+    ctx.call("set_memo", json!({"key": "doc", "content": "v1"}))
+        .await
+        .unwrap();
+    // A file mcp-memo could never have created: a human dropped it in.
+    std::fs::write(dir.path().join("TODO list.txt"), "手で置いたメモ").unwrap();
+
+    ctx.call("set_memo", json!({"key": "doc", "content": "v2"}))
+        .await
+        .unwrap();
+    ctx.call("set_memo", json!({"key": "other", "content": "new"}))
+        .await
+        .unwrap();
+    ctx.call("edit_memo", json!({"key": "doc", "old": "v2", "new": "v3"}))
+        .await
+        .unwrap();
+    ctx.call("delete_memo", json!({"key": "other"}))
+        .await
+        .unwrap();
+
+    // The foreign file is neither tracked nor listed, and is left untouched on disk.
+    assert_eq!(memo_history(dir.path(), "TODO list"), vec![None; 6]);
+    let listed = ctx.call("list_memos", json!({})).await.unwrap();
+    assert_eq!(listed, "doc");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("TODO list.txt")).unwrap(),
+        "手で置いたメモ"
+    );
+    assert_eq!(
+        memo_history(dir.path(), "doc"),
+        vec![
+            Some(b"v3".to_vec()),
+            Some(b"v3".to_vec()),
+            Some(b"v2".to_vec()),
+            Some(b"v2".to_vec()),
+            Some(b"v1".to_vec()),
+            None,
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_memo_blocks_writes_instead_of_dropping_it_from_history() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = tempdir().unwrap();
+    let ctx = McpTestContext::new(dir.path().to_path_buf()).await;
+    ctx.call(
+        "set_memo",
+        json!({"key": "important", "content": "precious"}),
+    )
+    .await
+    .unwrap();
+    ctx.call("set_memo", json!({"key": "other", "content": "v1"}))
+        .await
+        .unwrap();
+    let before = memo_history(dir.path(), "important");
+
+    let path = dir.path().join("important.txt");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let err = ctx
+        .call("set_memo", json!({"key": "other", "content": "v2"}))
+        .await
+        .unwrap_err();
+    assert!(err.contains("was not changed"), "{err}");
+    assert!(err.contains("important.txt"), "{err}");
+
+    // History must still hold the memo; dropping it would record it as deleted.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(memo_history(dir.path(), "important"), before);
+    ctx.call("set_memo", json!({"key": "other", "content": "v2"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        memo_history(dir.path(), "important")[0],
+        Some(b"precious".to_vec())
+    );
+}
+
+#[tokio::test]
 async fn commit_failure_keeps_content_and_recovers_before_next_update() {
     let dir = tempdir().unwrap();
     let ctx = McpTestContext::new(dir.path().to_path_buf()).await;

@@ -111,27 +111,29 @@ impl MemoStore {
                     None
                 }
             };
+            // Record anything that changed outside the server (or was left unrecorded by a
+            // failed write) before touching the memo, so the commit below has a HEAD that
+            // matches the directory and describes this change alone.
             let prepare = || -> Fallible<_> {
                 let repo = git::ensure_repository(&data_dir)?;
                 let snapshot = git::snapshot(&data_dir)?;
                 git::commit_snapshot(&repo, &snapshot, "Recover unrecorded memo changes", &git::signature_now()?, false)?;
-                Ok((repo, snapshot))
+                Ok(repo)
             };
-            let (repo, mut snapshot) = prepare().map_err(|e| anyhow!(
+            let repo = prepare().map_err(|e| anyhow!(
                 "memo '{key}' was not changed: could not prepare Git history: {e:#}"
             ))?;
             let name = format!("{key}.txt");
-            let message = if let Some(content) = content {
+            let (content, message) = if let Some(content) = content {
                 atomic_write(&data_dir, &path, content.as_bytes()).map_err(io_error)?;
-                snapshot.insert(name, content.into_bytes());
-                format!("{} memo {key}", if metadata.is_some() { "Update" } else { "Create" })
+                let message = format!("{} memo {key}", if metadata.is_some() { "Update" } else { "Create" });
+                (Some(content.into_bytes()), message)
             } else {
                 fs::remove_file(&path).map_err(|e| io_error(e.into()))?;
-                snapshot.remove(&name);
-                format!("Delete memo {key}")
+                (None, format!("Delete memo {key}"))
             };
             let commit = || -> Fallible<()> {
-                git::commit_snapshot(&repo, &snapshot, &message, &git::signature_now()?, false)?;
+                git::commit_entry(&repo, &name, content.as_deref(), &message, &git::signature_now()?)?;
                 Ok(())
             };
             commit().map_err(|e| anyhow!(
@@ -162,7 +164,13 @@ impl MemoStore {
                         .await
                         .map(|t| t.is_file())
                         .unwrap_or(false);
-                    if is_file && let Some(key) = name.strip_suffix(".txt") {
+                    if is_file
+                        && let Some(key) = name.strip_suffix(".txt")
+                        // Keep the listing consistent with what the other tools accept: a key
+                        // that fails validation cannot be read, written or deleted, so listing
+                        // it would only advertise an unusable memo.
+                        && git::validate_key(key).is_ok()
+                    {
                         keys.push(key.to_string());
                     }
                 }

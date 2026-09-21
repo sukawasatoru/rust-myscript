@@ -16,7 +16,7 @@
 
 use crate::git::{
     Snapshot, commit_snapshot, init_repository, lock_directory, mark_ready, open_repository,
-    snapshot, validate_key,
+    strict_snapshot, validate_key,
 };
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use rust_myscript::prelude::*;
@@ -59,7 +59,7 @@ fn migrate_blocking(data_dir: &Path, dry_run: bool) -> Fallible<MigrationReport>
     }
 
     let backups = read_backups(data_dir)?;
-    let current = snapshot(data_dir)?;
+    let current = strict_snapshot(data_dir)?;
     let report = MigrationReport {
         backup_count: backups.len(),
         memo_count: current.len(),
@@ -398,7 +398,7 @@ mod tests {
             .unwrap()
             .modified()
             .unwrap();
-        let current = snapshot(data_dir).unwrap();
+        let current = strict_snapshot(data_dir).unwrap();
         let before = Utc::now().timestamp();
         let report = migrate(data_dir.to_path_buf(), false).await.unwrap();
         let after = Utc::now().timestamp();
@@ -443,7 +443,7 @@ mod tests {
             assert!((before..=after).contains(&signature.when().seconds()));
         }
         assert_eq!(committed_snapshot(&repository, final_commit.id()), current);
-        assert_eq!(snapshot(data_dir).unwrap(), current);
+        assert_eq!(strict_snapshot(data_dir).unwrap(), current);
         assert!(!data_dir.join("gone.txt").exists());
         assert!(!data_dir.join("zeta.txt").exists());
         for (path, _) in &backups {
@@ -492,7 +492,7 @@ mod tests {
                 if has_current {
                     fs::write(directory.path().join("memo.txt"), b"current").unwrap();
                 }
-                let expected = snapshot(directory.path()).unwrap();
+                let expected = strict_snapshot(directory.path()).unwrap();
                 let report = migrate_blocking(directory.path(), false).unwrap();
                 assert_eq!(report.backup_count, 0);
                 assert_eq!(report.memo_count, usize::from(has_current));
