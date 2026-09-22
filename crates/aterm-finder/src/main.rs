@@ -1,6 +1,5 @@
 use clap::Parser;
 use rust_myscript::prelude::*;
-use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -34,6 +33,8 @@ enum SystemMode {
     DsLite,
     FixIP1,
     MultipleFixIP,
+    MeshRelay,
+    Unknown,
 }
 
 impl std::fmt::Display for SystemMode {
@@ -49,28 +50,38 @@ impl std::fmt::Display for SystemMode {
             SystemMode::DsLite => write!(f, "DS-Lite"),
             SystemMode::FixIP1 => write!(f, "固定IP1"),
             SystemMode::MultipleFixIP => write!(f, "複数固定IP"),
+            SystemMode::MeshRelay => write!(f, "メッシュ中継機"),
+            SystemMode::Unknown => write!(f, "-"),
         }
     }
 }
 
-impl TryInto<SystemMode> for i32 {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<SystemMode, Self::Error> {
-        match self {
-            0 => Ok(SystemMode::Bridge),
-            1 => Ok(SystemMode::PPPoERouter),
-            2 => Ok(SystemMode::LocalRouter),
-            3 => Ok(SystemMode::WirelessLANClient),
-            4 => Ok(SystemMode::WirelessLANExtender),
-            5 => Ok(SystemMode::MapE),
-            6 => Ok(SystemMode::_464XLAT),
-            7 => Ok(SystemMode::DsLite),
-            8 => Ok(SystemMode::FixIP1),
-            9 => Ok(SystemMode::MultipleFixIP),
-            _ => anyhow::bail!("unsupported number: {}", self),
+impl From<i32> for SystemMode {
+    fn from(code: i32) -> Self {
+        match code {
+            0 => SystemMode::Bridge,
+            1 => SystemMode::PPPoERouter,
+            2 => SystemMode::LocalRouter,
+            3 => SystemMode::WirelessLANClient,
+            4 => SystemMode::WirelessLANExtender,
+            5 => SystemMode::MapE,
+            6 => SystemMode::_464XLAT,
+            7 => SystemMode::DsLite,
+            8 => SystemMode::FixIP1,
+            9 => SystemMode::MultipleFixIP,
+            10 => SystemMode::MeshRelay,
+            _ => SystemMode::Unknown,
         }
     }
+}
+
+fn system_mode_from_body(regex: &regex::Regex, response: &str) -> SystemMode {
+    regex
+        .captures(response.trim())
+        .and_then(|caps| caps.get(1))
+        .and_then(|matched| matched.as_str().parse::<i32>().ok())
+        .map(SystemMode::from)
+        .unwrap_or(SystemMode::Unknown)
 }
 
 struct Context {
@@ -236,16 +247,10 @@ async fn retrieve_system_mode(
     let response_string = request_aterm(client, target, &context.timeout, &form_data).await?;
     trace!(ip = %target, %response_string);
 
-    let ret = context
-        .regex_system_mode
-        .captures(response_string.trim())
-        .with_context(|| format!("no match found: {response_string}"))?
-        .get(1)
-        .with_context(|| format!("no match group found: {response_string}"))?
-        .as_str()
-        .parse::<i32>()?
-        .try_into()?;
-    Ok(ret)
+    Ok(system_mode_from_body(
+        &context.regex_system_mode,
+        &response_string,
+    ))
 }
 
 async fn request_aterm(
