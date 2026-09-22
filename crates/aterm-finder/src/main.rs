@@ -22,6 +22,7 @@ struct Opt {
     parallel_http_connection: usize,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum SystemMode {
     Bridge,
     PPPoERouter,
@@ -334,15 +335,17 @@ mod debug_server {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn test_regex_product_name() {
+    fn regex_product_name_should_capture_product_name() {
         let reg = regex::Regex::new(r"^PRODUCT_NAME=(.*)$").unwrap();
         let cap = reg.captures(r"PRODUCT_NAME=aterm").unwrap();
         assert_eq!("aterm", cap.get(1).unwrap().as_str())
     }
 
     #[test]
-    fn test_regex_system_mode() {
+    fn regex_system_mode_should_capture_system_mode() {
         let reg = regex::Regex::new(r"^SYSTEM_MODE=(\d*)$").unwrap();
         let actual = reg
             .captures(r"SYSTEM_MODE=2")
@@ -353,5 +356,55 @@ mod tests {
             .parse::<i32>()
             .unwrap();
         assert_eq!(2, actual)
+    }
+
+    #[test]
+    fn system_mode_from_body_should_parse_supported_modes() {
+        let regex = regex::Regex::new(r"^SYSTEM_MODE=(\d*)$").unwrap();
+        let test_cases = [
+            ("SYSTEM_MODE=0", SystemMode::Bridge),
+            ("SYSTEM_MODE=1", SystemMode::PPPoERouter),
+            ("SYSTEM_MODE=2", SystemMode::LocalRouter),
+            ("SYSTEM_MODE=3", SystemMode::WirelessLANClient),
+            ("SYSTEM_MODE=4", SystemMode::WirelessLANExtender),
+            ("SYSTEM_MODE=5", SystemMode::MapE),
+            ("SYSTEM_MODE=6", SystemMode::_464XLAT),
+            ("SYSTEM_MODE=7", SystemMode::DsLite),
+            ("SYSTEM_MODE=8", SystemMode::FixIP1),
+            ("SYSTEM_MODE=9", SystemMode::MultipleFixIP),
+            ("SYSTEM_MODE=10", SystemMode::MeshRelay),
+        ];
+
+        for (body, expected) in test_cases {
+            assert_eq!(expected, system_mode_from_body(&regex, body));
+        }
+    }
+
+    #[test]
+    fn system_mode_from_body_should_return_unknown_for_unsupported_modes() {
+        let regex = regex::Regex::new(r"^SYSTEM_MODE=(\d*)$").unwrap();
+
+        for body in ["SYSTEM_MODE=11", "SYSTEM_MODE=999"] {
+            assert_eq!(SystemMode::Unknown, system_mode_from_body(&regex, body));
+        }
+    }
+
+    #[test]
+    fn system_mode_from_body_should_return_unknown_for_invalid_bodies() {
+        let regex = regex::Regex::new(r"^SYSTEM_MODE=(\d*)$").unwrap();
+
+        for body in ["", "SYSTEM_MODE=", "SYSTEM_MODE=-1", "invalid"] {
+            assert_eq!(SystemMode::Unknown, system_mode_from_body(&regex, body));
+        }
+    }
+
+    #[test]
+    fn system_mode_from_body_should_ignore_trailing_whitespace() {
+        let regex = regex::Regex::new(r"^SYSTEM_MODE=(\d*)$").unwrap();
+
+        assert_eq!(
+            SystemMode::MeshRelay,
+            system_mode_from_body(&regex, "SYSTEM_MODE=10\r\n")
+        );
     }
 }
