@@ -18,7 +18,7 @@ use clap::{Parser, ValueHint};
 use dat_explorer::feature::{fetch_dat, fetch_subject, read_posts, search_posts};
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::{self, JsonSchema};
 use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use rust_myscript::prelude::*;
@@ -411,8 +411,8 @@ impl McpServer {
 
 #[tool_handler]
 impl ServerHandler for McpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

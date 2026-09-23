@@ -18,7 +18,7 @@ use crate::feature;
 use crate::store::MemoStore;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::{self, JsonSchema};
 use rmcp::{ServerHandler, ServiceExt as _, tool, tool_handler, tool_router};
 use rust_myscript::prelude::*;
@@ -159,8 +159,8 @@ impl MemoServer {
 
 #[tool_handler]
 impl ServerHandler for MemoServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
