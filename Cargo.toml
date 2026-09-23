@@ -62,6 +62,9 @@ rand = "=0.10.2"
 ratatui = "=0.30.2"
 regex = "=1.13.1"
 reqwest = { version = "=0.13.4", features = ["blocking", "json", "form", "brotli", "gzip", "deflate"] }
+# OTLP uses protobuf bytes; retain TLS, HTTP/2 and system proxies without payload/decoding features.
+# Keep the version aligned with reqwest above; both names resolve to the same package.
+reqwest-otel = { package = "reqwest", version = "=0.13.4", default-features = false, features = ["blocking", "rustls", "http2", "system-proxy"] }
 rmcp = { version = "3.1.4", features = ["schemars", "transport-io", "client"] }
 # rusqlite requires SQLite >= 3.34.1. Windows uses the bundled library.
 # Ubuntu: sudo apt install pkg-config libsqlite3-dev

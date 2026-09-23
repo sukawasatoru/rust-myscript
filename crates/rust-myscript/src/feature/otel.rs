@@ -148,3 +148,84 @@ impl Drop for OtelGuards {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::logs::{LogRecord, Logger, LoggerProvider};
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn exports_protobuf_logs_without_tokio_runtime() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/v1/logs", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let receiver = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "OTLP request timed out");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => panic!("accept failed: {e}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+
+            let mut reader = BufReader::new(&stream);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            assert_eq!(request_line, "POST /v1/logs HTTP/1.1\r\n");
+
+            let mut content_length = None;
+            let mut content_type = None;
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+                let (name, value) = line.split_once(':').unwrap();
+                if name.eq_ignore_ascii_case("content-length") {
+                    content_length = Some(value.trim().parse::<usize>().unwrap());
+                } else if name.eq_ignore_ascii_case("content-type") {
+                    content_type = Some(value.trim().to_owned());
+                }
+            }
+            assert_eq!(content_type.as_deref(), Some("application/x-protobuf"));
+            let mut body = vec![0; content_length.unwrap()];
+            reader.read_exact(&mut body).unwrap();
+            // An empty protobuf ExportLogsServiceResponse acknowledges the batch.
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/x-protobuf\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            body
+        });
+
+        let provider =
+            create_logger_provider(Resource::builder_empty().build(), endpoint.parse().unwrap())
+                .unwrap();
+        let logger = provider.logger("transport-test");
+        let mut record = logger.create_log_record();
+        let message = "otlp-blocking-protobuf-smoke";
+        record.set_body(message.into());
+        logger.emit(record);
+        provider.force_flush().unwrap();
+        provider.shutdown().unwrap();
+
+        let body = receiver.join().unwrap();
+        assert!(
+            body.windows(message.len())
+                .any(|bytes| bytes == message.as_bytes())
+        );
+    }
+}

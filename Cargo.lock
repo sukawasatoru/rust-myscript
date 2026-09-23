@@ -3373,9 +3373,7 @@ name = "rust-myscript"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "futures",
  "hostname",
- "num_cpus",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -3384,7 +3382,6 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "serde",
- "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",

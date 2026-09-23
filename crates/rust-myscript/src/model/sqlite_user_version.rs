@@ -110,17 +110,9 @@ impl PartialOrd<SQLiteUserVersion> for SQLiteUserVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
 
     #[test]
     fn sqlite_user_version() {
-        assert_eq!(0b11111111_11111111_11111111_11111111u32, u32::MAX);
-
-        assert_eq!(
-            (0b11111111u32 << 24) | (0b11111111_11111111u32 << 8) | 0b11111111,
-            u32::MAX
-        );
-
         assert_eq!(SQLiteUserVersion::from((1, 2, 3)).to_string(), "1.2.3");
         assert_eq!(
             SQLiteUserVersion::from((255, 65535, 255)).to_string(),
@@ -147,57 +139,56 @@ mod tests {
     }
 
     #[test]
-    fn parse_u32() {
-        let orig = SQLiteUserVersion::from((1, 2, 3));
-        let orig_u32 = u32::from(orig.clone());
-        let orig_u32_version = SQLiteUserVersion::from(orig_u32);
-
-        assert_eq!(orig_u32_version, orig);
+    fn u32_layout() {
+        // Check each field independently, including the two bytes of minor.
+        for (packed, fields) in [
+            (0x0000_0000, (0, 0, 0)),
+            (0x0000_00ff, (0, 0, 255)),
+            (0x0000_0100, (0, 1, 0)),
+            (0x0000_ff00, (0, 255, 0)),
+            (0x0001_0000, (0, 256, 0)),
+            (0x00ff_ff00, (0, 65535, 0)),
+            (0x0100_0000, (1, 0, 0)),
+            (0xff00_0000, (255, 0, 0)),
+            (0x0102_0304, (1, 515, 4)),
+            (0x7fff_ffff, (127, 65535, 255)),
+            (0x8000_0000, (128, 0, 0)),
+            (0xffff_ffff, (255, 65535, 255)),
+        ] {
+            let version = SQLiteUserVersion::from(fields);
+            assert_eq!(SQLiteUserVersion::from(packed), version);
+            assert_eq!(u32::from(&version), packed);
+            assert_eq!(u32::from(version), packed);
+        }
     }
 
     #[test]
-    fn parse_u32_max() {
-        let orig = SQLiteUserVersion::from((255, 65535, 255));
-        let orig_u32 = u32::from(orig.clone());
-        let orig_u32_version = SQLiteUserVersion::from(orig_u32);
-
-        assert_eq!(orig_u32_version, orig);
+    fn u32_boundary_roundtrip() {
+        for major in [0, 1, 127, 128, 254, 255] {
+            for minor in [0, 1, 255, 256, 32767, 32768, 65534, 65535] {
+                for patch in [0, 1, 127, 128, 254, 255] {
+                    let version = SQLiteUserVersion::from((major, minor, patch));
+                    assert_eq!(SQLiteUserVersion::from(u32::from(&version)), version);
+                }
+            }
+        }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
-    async fn parse_u32_matrix() {
-        let mut futs = futures::stream::FuturesUnordered::new();
-        let cpus = num_cpus::get();
-        let duration = 255 / cpus;
-        let mut count = 0;
-        for i in 0..cpus {
-            futs.push(tokio::task::spawn(async move {
-                let start = count;
-                // "cpus + 1" means "=" of "0..=255".
-                let end = count + duration + if i == cpus - 1 { 255 % cpus + 1 } else { 0 };
-
-                for major in start..end {
-                    for minor in 0..=65535 {
-                        for patch in 0..=255 {
-                            let major = major as u8;
-                            let orig = SQLiteUserVersion::from((major, minor, patch));
-                            let orig_u32 = u32::from(orig.clone());
-                            let orig_u32_version = SQLiteUserVersion::from(orig_u32);
-
-                            assert_eq!(orig_u32_version, orig);
-                        }
-                    }
-                }
-            }));
-            count += duration;
-        }
-
-        while let Some(data) = futs.next().await {
-            if let Err(e) = data {
-                dbg!(e);
-                unreachable!();
-            }
+    #[test]
+    fn sqlite_signed_user_version() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        for (stored, fields) in [
+            (0, (0, 0, 0)),
+            (i32::MAX, (127, 65535, 255)),
+            (i32::MIN, (128, 0, 0)),
+            (-1, (255, 65535, 255)),
+        ] {
+            conn.pragma_update(None, "user_version", stored).unwrap();
+            let version: SQLiteUserVersion = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, SQLiteUserVersion::from(fields));
+            assert_eq!(u32::from(version) as i32, stored);
         }
     }
 }
