@@ -9,6 +9,8 @@ edition.workspace = true
 
 [features]
 default = []
+# Helpers used only by crates excluded from the workspace.
+legacy = ["dep:serde", "dep:toml"]
 otel = [
     "dep:hostname",
     "dep:opentelemetry",
@@ -17,13 +19,10 @@ otel = [
     "dep:opentelemetry-appender-tracing",
     "dep:opentelemetry-semantic-conventions",
     "dep:reqwest",
+    "dep:tracing-subscriber",
     "dep:url",
 ]
 sqlite = ["dep:rusqlite"]
-
-[build-dependencies]
-anyhow = { workspace = true }
-pkg-config = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
@@ -35,10 +34,10 @@ opentelemetry-appender-tracing = { workspace = true, optional = true }
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
-serde = { workspace = true }
-toml = { workspace = true }
+serde = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 [dev-dependencies]

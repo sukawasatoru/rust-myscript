@@ -1,11 +1,13 @@
 pub use anyhow::{Context as _, Result as Fallible, bail, ensure};
 pub use tracing::{debug, error, info, info_span, trace, warn};
 
+#[cfg(feature = "legacy")]
 #[derive(Default)]
 pub struct TomlLoader {
     buf: String,
 }
 
+#[cfg(feature = "legacy")]
 impl TomlLoader {
     pub fn new() -> Self {
         Default::default()
@@ -41,8 +43,10 @@ impl std::fmt::Display for HexFormat<'_> {
     }
 }
 
+#[cfg(feature = "legacy")]
 pub struct StrVisitor;
 
+#[cfg(feature = "legacy")]
 impl<'de> serde::de::Visitor<'de> for StrVisitor {
     type Value = &'de str;
 

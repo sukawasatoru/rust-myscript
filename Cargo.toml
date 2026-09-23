@@ -58,12 +58,14 @@ opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = 
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "logs", "reqwest-blocking-client"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-semantic-conventions = { version = "=0.32.1", features = ["semconv_experimental"] }
-pkg-config = "=0.3.34"
 rand = "=0.10.2"
 ratatui = "=0.30.2"
 regex = "=1.13.1"
 reqwest = { version = "=0.13.4", features = ["blocking", "json", "form", "brotli", "gzip", "deflate"] }
 rmcp = { version = "3.1.4", features = ["schemars", "transport-io", "client"] }
+# rusqlite requires SQLite >= 3.34.1. Windows uses the bundled library.
+# Ubuntu: sudo apt install pkg-config libsqlite3-dev
+# Check the system version: pkg-config --modversion sqlite3
 rusqlite = { version = "=0.40.2", features = ["bundled-windows"] }
 semver = { version = "=1.0.28", features = ["serde"] }
 serde = { version = "=1.0.229", features = ["derive", "rc"] }

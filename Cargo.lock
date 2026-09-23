@@ -3381,7 +3381,6 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "pkg-config",
  "reqwest",
  "rusqlite",
  "serde",

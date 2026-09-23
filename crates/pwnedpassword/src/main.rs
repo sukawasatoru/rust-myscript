@@ -26,6 +26,9 @@ use tinytable_rs::Attribute::{NOT_NULL, PRIMARY_KEY};
 use tinytable_rs::Type::TEXT;
 use tinytable_rs::{Column, Table, column};
 
+/// Check passwords against known breaches using an online service or a local database.
+///
+/// Requires system SQLite 3.34.1 or newer on Linux/macOS. Windows uses bundled SQLite.
 #[derive(Parser)]
 struct Opt {
     #[command(subcommand)]
