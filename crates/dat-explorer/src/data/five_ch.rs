@@ -14,4 +14,12 @@
  * limitations under the License.
  */
 
-pub mod mcp;
+//! Clients for 5ch resources. Transport policies belong to each resource client.
+
+pub mod dat;
+pub mod subject;
+
+/// Preserve replacement decoding for dat/read.cgi. subject.txt uses strict decoding.
+fn decode_cp932_lossy(bytes: &[u8]) -> String {
+    encoding_rs::SHIFT_JIS.decode(bytes).0.into_owned()
+}

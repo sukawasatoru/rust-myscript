@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-use crate::dat;
-use regex::Regex;
+use crate::application::thread_service::ThreadService;
+use crate::feature::mcp::response;
+use crate::model::query::{SearchHit, SearchPostsQuery};
 use rust_myscript::prelude::*;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
 
 #[derive(Default)]
 pub struct SearchPostsParams {
@@ -37,34 +36,6 @@ pub struct SearchPostsParams {
     pub disable_body_limit: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct SearchHit {
-    pub file: String,
-    pub res_num: usize,
-    pub datetime: String,
-    pub id: String,
-    pub body: String,
-    pub urls: Vec<String>,
-    /// Reference count for this post (>>N anchor aggregation)
-    pub ref_count: usize,
-}
-
-impl SearchHit {
-    /// Returns the estimated character count for response fields.
-    pub fn response_chars(&self, include_id: bool) -> usize {
-        let id_chars = if include_id {
-            self.id.chars().count()
-        } else {
-            0
-        };
-        self.file.chars().count()
-            + self.datetime.chars().count()
-            + id_chars
-            + self.body.chars().count()
-            + self.urls.iter().map(|u| u.chars().count()).sum::<usize>()
-    }
-}
-
 pub struct SearchPostsResult {
     pub hits: Vec<SearchHit>,
     pub total_hits: usize,
@@ -73,102 +44,26 @@ pub struct SearchPostsResult {
     pub omitted_count: usize,
 }
 
-pub fn search_posts(dat_dir: &Path, params: &SearchPostsParams) -> Fallible<SearchPostsResult> {
-    ensure!(
-        !params.keywords.is_empty() || !params.ids.is_empty(),
-        "keywords または ids を指定してください"
-    );
-
-    let compiled: Vec<(String, Regex)> = params
-        .keywords
-        .iter()
-        .map(|kw| {
-            Regex::new(&format!("(?i){kw}"))
-                .map(|re| (kw.clone(), re))
-                .with_context(|| format!("invalid regex: {kw}"))
-        })
-        .collect::<Fallible<_>>()?;
-
-    let paths = dat::resolve_files(dat_dir, &params.files)?;
-    let mut hits = Vec::new();
-    let mut searched_files = Vec::new();
-
-    for path in &paths {
-        let filename = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        searched_files.push(filename.clone());
-
-        let file = std::fs::File::open(path)?;
-        let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
-        let total = lines.len();
-        let ref_counts = dat::count_references(&lines);
-
-        let (start, end) = if let Some(ref range_str) = params.range {
-            dat::resolve_range(range_str, total)?
-        } else {
-            (1, total)
-        };
-
-        for (i, line) in lines.iter().enumerate() {
-            let res_num = i + 1;
-            if res_num < start || res_num > end {
-                continue;
-            }
-
-            let post = match dat::parse_dat_line(line, res_num) {
-                Some(p) => p,
-                None => continue,
-            };
-
-            // ID filter
-            if !params.ids.is_empty() {
-                let id_matched = params.ids.iter().any(|id| post.id.contains(id));
-                if !id_matched {
-                    continue;
-                }
-            }
-
-            // Keyword matching (empty keywords matches all posts)
-            let matched: Vec<String> = if compiled.is_empty() {
-                vec!["*".to_string()]
-            } else {
-                compiled
-                    .iter()
-                    .filter(|(_, re)| re.is_match(&post.body))
-                    .map(|(kw, _)| kw.clone())
-                    .collect()
-            };
-
-            if matched.is_empty() {
-                continue;
-            }
-
-            let urls = dat::extract_urls(&post.body);
-
-            let ref_count = ref_counts.get(&res_num).copied().unwrap_or(0);
-            hits.push(SearchHit {
-                file: filename.clone(),
-                res_num,
-                datetime: post.datetime,
-                id: post.id,
-                body: post.body,
-                urls,
-                ref_count,
-            });
-        }
-    }
+pub fn search_posts(
+    service: &ThreadService,
+    params: &SearchPostsParams,
+) -> Fallible<SearchPostsResult> {
+    let result = service.search_posts(&SearchPostsQuery {
+        keywords: params.keywords.clone(),
+        files: params.files.clone(),
+        range: params.range.clone(),
+        ids: params.ids.clone(),
+    })?;
+    let mut hits = result.hits;
+    let searched_files = result.searched_files;
 
     // Cumulative cutoff by max_body_chars
     let include_id = params.include_id;
-    let omitted_count = dat::apply_cutoff(
+    let omitted_count = response::apply_cutoff(
         &mut hits,
         params.max_body_chars,
         params.disable_body_limit,
-        |h| h.response_chars(include_id),
+        |h| response::hit_chars(h, include_id),
     );
 
     let total_hits = hits.len() + omitted_count;
@@ -183,7 +78,13 @@ pub fn search_posts(dat_dir: &Path, params: &SearchPostsParams) -> Fallible<Sear
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dat::test_helpers::create_test_dat_dir;
+    use crate::data::dat_file::test_helpers::create_test_dat_dir;
+    use std::path::Path;
+
+    fn search_posts(dat_dir: &Path, params: &SearchPostsParams) -> Fallible<SearchPostsResult> {
+        let service = ThreadService::new(dat_dir.to_path_buf(), reqwest::Client::new());
+        super::search_posts(&service, params)
+    }
 
     #[test]
     fn search_basic_keyword() {

@@ -14,4 +14,4 @@
  * limitations under the License.
  */
 
-pub mod mcp;
+pub mod thread_service;

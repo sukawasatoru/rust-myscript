@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-use crate::dat;
+use crate::application::thread_service::ThreadService;
+use crate::feature::mcp::response;
+use crate::model::query::ReadPostsQuery;
 use crate::model::{DatFileInfo, DatPost};
 use rust_myscript::prelude::*;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct ReadPostsParams {
@@ -52,61 +53,22 @@ pub struct ReadPostsResult {
     pub omitted_count: usize,
 }
 
-pub fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPostsResult> {
-    let path = dat::resolve_dat_file(dat_dir, &params.file)?;
-    let lines = dat::read_lines(&path)?;
-    let file_info = dat::build_file_info_from_lines(&path, &lines)?;
-    let total = lines.len();
-
-    let mut posts = Vec::new();
-
-    if !params.res_nums.is_empty() {
-        // Retrieve only the specified post numbers (sorted)
-        let target: BTreeSet<usize> = params.res_nums.iter().copied().collect();
-        for &res_num in &target {
-            let i = res_num - 1;
-            if i >= lines.len() {
-                continue;
-            }
-            if let Some(post) = dat::parse_dat_line(&lines[i], res_num) {
-                posts.push(post);
-            }
-        }
-    } else {
-        // Retrieve posts within the specified range
-        let (start, end) = if let Some(ref range_str) = params.range {
-            dat::resolve_range(range_str, total)?
-        } else {
-            (1, total)
-        };
-
-        for (i, line) in lines.iter().enumerate() {
-            let res_num = i + 1;
-            if res_num < start || res_num > end {
-                continue;
-            }
-            if let Some(post) = dat::parse_dat_line(line, res_num) {
-                posts.push(post);
-            }
-        }
-    }
-
-    let ref_counts = dat::count_references(&lines);
-
-    // Extract URLs when requested (before cutoff so char counts are accurate)
-    let urls: HashMap<usize, Vec<String>> = if params.include_urls {
-        posts
-            .iter()
-            .map(|p| (p.res_num, dat::extract_urls(&p.body)))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+pub fn read_posts(service: &ThreadService, params: &ReadPostsParams) -> Fallible<ReadPostsResult> {
+    let result = service.read_posts(&ReadPostsQuery {
+        file: params.file.clone(),
+        range: params.range.clone(),
+        res_nums: params.res_nums.clone(),
+        include_urls: params.include_urls,
+    })?;
+    let mut posts = result.posts;
+    let file_info = result.file_info;
+    let ref_counts = result.ref_counts;
+    let urls = result.urls;
 
     // Cumulative cutoff by max_body_chars
     let include_name = params.include_name;
     let include_id = params.include_id;
-    let omitted_count = dat::apply_cutoff(
+    let omitted_count = response::apply_cutoff(
         &mut posts,
         params.max_body_chars,
         params.disable_body_limit,
@@ -114,7 +76,7 @@ pub fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPost
             let url_chars = urls
                 .get(&p.res_num)
                 .map_or(0, |u| u.iter().map(|s| s.chars().count()).sum());
-            p.response_chars(include_name, include_id) + url_chars
+            response::post_chars(p, include_name, include_id) + url_chars
         },
     );
 
@@ -137,7 +99,13 @@ pub fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPost
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dat::test_helpers::create_test_dat_dir;
+    use crate::data::dat_file::test_helpers::create_test_dat_dir;
+    use std::path::Path;
+
+    fn read_posts(dat_dir: &Path, params: &ReadPostsParams) -> Fallible<ReadPostsResult> {
+        let service = ThreadService::new(dat_dir.to_path_buf(), reqwest::Client::new());
+        super::read_posts(&service, params)
+    }
 
     #[test]
     fn read_all_posts() {

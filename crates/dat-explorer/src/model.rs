@@ -14,6 +14,40 @@
  * limitations under the License.
  */
 
+pub mod fetch;
+pub mod query;
+pub mod urls;
+
+/// A complete parsed snapshot. Source line positions are retained for range queries,
+/// including malformed lines and the terminal "Over 1000 Thread" line.
+#[derive(Debug, Clone)]
+pub struct LoadedThread {
+    pub file_info: DatFileInfo,
+    pub posts: Vec<DatPost>,
+    pub source_line_count: usize,
+    pub ref_counts: std::collections::HashMap<usize, usize>,
+}
+
+/// Downloaded UTF-8 dat ready for storage, not a lossy reconstruction from display posts.
+/// Its text is kept opaque to callers outside the crate.
+pub struct DownloadedDat {
+    text: String,
+}
+
+impl DownloadedDat {
+    pub(crate) fn from_text(text: String) -> Self {
+        Self { text }
+    }
+
+    pub fn res_count(&self) -> usize {
+        self.text.lines().filter(|line| !line.is_empty()).count()
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+}
+
 /// A single parsed post from a dat file.
 #[derive(Debug, Clone)]
 pub struct DatPost {
@@ -26,25 +60,15 @@ pub struct DatPost {
     pub title: Option<String>,
 }
 
-impl DatPost {
-    /// Returns the estimated character count for response fields.
-    /// Only counts fields actually included in the response.
-    pub fn response_chars(&self, include_name: bool, include_id: bool) -> usize {
-        let name_chars = if include_name {
-            self.name.chars().count()
-        } else {
-            0
-        };
-        let id_chars = if include_id {
-            self.id.chars().count()
-        } else {
-            0
-        };
-        name_chars + self.datetime.chars().count() + id_chars + self.body.chars().count()
-    }
+/// Metadata derived solely from dat contents, without a storage identity.
+#[derive(Debug, Clone)]
+pub struct DatContentInfo {
+    pub total_lines: usize,
+    pub thread_title: String,
+    pub date_range: String,
 }
 
-/// Metadata for a dat file.
+/// Content metadata combined with local storage identity.
 #[derive(Debug, Clone)]
 pub struct DatFileInfo {
     pub filename: String,
