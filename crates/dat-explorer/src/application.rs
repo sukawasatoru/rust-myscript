@@ -14,4 +14,5 @@
  * limitations under the License.
  */
 
+pub mod backend;
 pub mod thread_service;

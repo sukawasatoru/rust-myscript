@@ -16,3 +16,5 @@
 
 pub mod dat_file;
 pub mod five_ch;
+pub mod mcp_client;
+pub mod viewer_store;

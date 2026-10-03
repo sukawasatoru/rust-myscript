@@ -25,6 +25,12 @@ use tracing::Level;
 async fn main() {
     let cli = Cli::parse();
     match cli.command {
+        Command::Viewer { dat_dir } => {
+            if let Err(e) = run_viewer(dat_dir).await {
+                eprintln!("{e:#}");
+                std::process::exit(1);
+            }
+        }
         Command::Mcp {
             dat_dir,
             disable_body_limit,
@@ -44,4 +50,15 @@ async fn main() {
             dat_explorer::feature::mcp::run(service, disable_body_limit).await;
         }
     }
+}
+
+async fn run_viewer(dat_dir: std::path::PathBuf) -> anyhow::Result<()> {
+    let dat_dir = std::fs::canonicalize(dat_dir)?;
+    anyhow::ensure!(dat_dir.is_dir(), "DAT_DIR must be a directory");
+    let service = std::sync::Arc::new(ThreadService::new(
+        dat_dir.clone(),
+        subject::build_client()?,
+    ));
+    let store = dat_explorer::data::viewer_store::ViewerStore::discover()?;
+    dat_explorer::feature::viewer::run(dat_dir, service, store).await
 }

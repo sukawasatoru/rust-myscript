@@ -17,6 +17,7 @@
 pub mod fetch;
 pub mod query;
 pub mod urls;
+pub mod viewer;
 
 /// A complete parsed snapshot. Source line positions are retained for range queries,
 /// including malformed lines and the terminal "Over 1000 Thread" line.

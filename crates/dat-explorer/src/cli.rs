@@ -31,6 +31,7 @@ pub enum Command {
     ///
     /// 提供する tool:
     ///   read_posts     保存済み dat のレスを読み取る。
+    ///   list_threads   保存済み dat のスレッド一覧を表示する。
     ///   search_posts   保存済み dat をキーワード・投稿者 ID で検索する。
     ///   fetch_dat      スレッドを取得し、UTF-8 の dat として保存する。
     ///   fetch_subject  板のスレッド一覧を取得する。
@@ -49,6 +50,19 @@ pub enum Command {
         /// max_body_chars が 0 の場合は文字数を制限しない。
         #[arg(long)]
         disable_body_limit: bool,
+    },
+    /// 保存済み dat を TUI で閲覧する。
+    ///
+    /// Enter: スレッドを開く。↑/↓・PageUp/PageDown・ホイール: 移動。
+    /// Ctrl+N/P: ↓/↑と同じ移動。本文の URL を左クリックするとブラウザで開く。
+    /// F2: マウス操作を切り替える。OFF の間は端末側で文字選択・コピーが可能。
+    /// r: 再読み込み。Esc: 一覧へ戻る／終了。F1・Ctrl+,: 取得経路の設定。
+    /// 読書位置と取得経路は次回起動時にも復元する。
+    #[command(verbatim_doc_comment)]
+    Viewer {
+        /// dat ファイルの読み込み先ディレクトリ。
+        #[arg(value_hint = ValueHint::DirPath)]
+        dat_dir: PathBuf,
     },
 }
 
@@ -69,15 +83,30 @@ mod tests {
         let Command::Mcp {
             dat_dir,
             disable_body_limit,
-        } = cli.command;
+        } = cli.command
+        else {
+            panic!("expected mcp");
+        };
         assert_eq!(dat_dir, PathBuf::from("./dat"));
         assert!(disable_body_limit);
 
         let cli = Cli::try_parse_from(["dat-explorer", "mcp", "./dat"]).unwrap();
         let Command::Mcp {
             disable_body_limit, ..
-        } = cli.command;
+        } = cli.command
+        else {
+            panic!("expected mcp");
+        };
         assert!(!disable_body_limit);
+    }
+
+    #[test]
+    fn viewer_arguments() {
+        let cli = Cli::try_parse_from(["dat-explorer", "viewer", "./dat"]).unwrap();
+        assert!(
+            matches!(cli.command, Command::Viewer { dat_dir } if dat_dir == std::path::Path::new("./dat"))
+        );
+        assert!(Cli::try_parse_from(["dat-explorer", "viewer"]).is_err());
     }
 
     #[test]

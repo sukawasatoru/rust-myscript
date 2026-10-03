@@ -43,7 +43,7 @@ pub struct ReadPostsToolParams {
     pub include_urls: bool,
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 pub struct ReadPostsResponse {
     pub file_info: FileInfoEntry,
     /// カラム名の一覧: ["res_num", "name", "datetime", "id", "body", "ref_count", "urls"] (name, id, urls は引数による)
@@ -153,11 +153,26 @@ fn is_zero(v: &usize) -> bool {
     *v == 0
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 pub struct FileInfoEntry {
     pub filename: String,
     pub thread_num: u32,
     pub thread_title: String,
     pub total_lines: usize,
     pub date_range: String,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct ListThreadsResponse {
+    /// 作成日時降順。不明なものは末尾。同日時の場合はファイル名順。
+    pub threads: Vec<LocalThreadEntry>,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct LocalThreadEntry {
+    pub file: String,
+    pub title: String,
+    pub post_count: usize,
+    /// ファイル名中のスレッド ID から得られる Unix 時刻（秒）。不明なら null。
+    pub created_at: Option<i64>,
 }

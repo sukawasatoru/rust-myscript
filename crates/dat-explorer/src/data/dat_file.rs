@@ -48,7 +48,10 @@ pub fn list_all_dat_files(dat_dir: &Path) -> Fallible<Vec<PathBuf>> {
         let entry = entry?;
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.ends_with(".dat") && parse_dat_filename(&name_str).is_some() {
+        if name_str.ends_with(".dat")
+            && parse_dat_filename(&name_str).is_some()
+            && entry.path().is_file()
+        {
             files.push(entry.path());
         }
     }

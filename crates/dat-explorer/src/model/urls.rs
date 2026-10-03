@@ -17,6 +17,7 @@
 //! Links in decoded post bodies, independent of their source format.
 
 use regex::Regex;
+use std::ops::Range;
 use std::sync::LazyLock;
 
 static URL_RE: LazyLock<Regex> =
@@ -54,9 +55,54 @@ pub fn is_excluded_url(url: &str) -> bool {
     EXCLUDED_HOSTS.iter().any(|host| url.contains(host))
 }
 
+/// A clickable link in decoded text. Unlike content extraction, browsing does
+/// not exclude infrastructure hosts. The range refers to the displayed spelling.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Link {
+    pub range: Range<usize>,
+    pub url: String,
+}
+
+pub fn find_links(text: &str) -> Vec<Link> {
+    URL_RE
+        .find_iter(text)
+        .filter_map(|matched| {
+            let spelling = matched.as_str();
+            let target = if spelling.starts_with("ttp") {
+                format!("h{spelling}")
+            } else {
+                spelling.to_owned()
+            };
+            let parsed = url::Url::parse(&target).ok()?;
+            if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+                return None;
+            }
+            Some(Link {
+                range: matched.range(),
+                url: target,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clickable_links_keep_source_ranges_and_allow_infrastructure_hosts() {
+        let text = "日本語 ttps://example.com/a?q=1&b=2 http://jump5.ch/?https://example.com ttp://example.org/x file:///tmp/x javascript:alert(1) https://example.com:invalid";
+        let links = find_links(text);
+        assert_eq!(links.len(), 3);
+        assert_eq!(
+            &text[links[0].range.clone()],
+            "ttps://example.com/a?q=1&b=2"
+        );
+        assert_eq!(links[0].url, "https://example.com/a?q=1&b=2");
+        assert_eq!(links[1].url, "http://jump5.ch/?https://example.com");
+        assert_eq!(links[2].url, "http://example.org/x");
+        assert!(extract_urls("http://jump5.ch/?https://example.com").is_empty());
+    }
 
     #[test]
     fn extract_urls_basic() {

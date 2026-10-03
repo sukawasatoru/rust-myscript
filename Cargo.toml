@@ -88,6 +88,8 @@ tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 tree_magic_mini = "=3.2.2"
 trust-dns-resolver = "=0.23.2"
 url = { version = "=2.5.8", features = ["serde"] }
+unicode-segmentation = "=1.13.3"
+unicode-width = "=0.2.2"
 uuid = { version = "=1.26.0", features = ["v4"] }
 walkdir = "2.5.0"
 windows-registry = "=0.6.1"

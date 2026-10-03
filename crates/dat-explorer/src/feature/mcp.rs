@@ -121,6 +121,23 @@ impl McpServer {
         }))
     }
 
+    /// 保存済み dat のスレッド一覧を作成日時降順で返す
+    #[tool(annotations(read_only_hint = true, open_world_hint = false))]
+    async fn list_threads(&self) -> Result<Json<ListThreadsResponse>, String> {
+        let threads = self.service.list_threads().map_err(|e| format!("{e:#}"))?;
+        Ok(Json(ListThreadsResponse {
+            threads: threads
+                .into_iter()
+                .map(|entry| LocalThreadEntry {
+                    file: entry.file,
+                    title: entry.title,
+                    post_count: entry.post_count,
+                    created_at: entry.created_at,
+                })
+                .collect(),
+        }))
+    }
+
     /// キーワード（正規表現）または投稿者 ID でレスを検索する
     #[tool(annotations(read_only_hint = true, open_world_hint = false))]
     async fn search_posts(
@@ -526,7 +543,13 @@ mod tests {
         names.sort();
         assert_eq!(
             names,
-            ["fetch_dat", "fetch_subject", "read_posts", "search_posts"]
+            [
+                "fetch_dat",
+                "fetch_subject",
+                "list_threads",
+                "read_posts",
+                "search_posts"
+            ]
         );
         let tool = tools
             .iter()

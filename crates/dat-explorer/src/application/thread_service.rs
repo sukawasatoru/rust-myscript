@@ -24,6 +24,7 @@ use crate::model::query::{
     resolve_range,
 };
 use crate::model::urls::extract_urls;
+use crate::model::viewer::{ThreadEntry, ThreadSnapshot, ViewerPost};
 use rust_myscript::prelude::*;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -34,6 +35,52 @@ pub struct ThreadService {
 }
 
 impl ThreadService {
+    pub fn list_threads(&self) -> Fallible<Vec<ThreadEntry>> {
+        let mut entries = dat_file::list_all_dat_files(&self.dat_dir)?
+            .iter()
+            .map(|path| {
+                let info = dat_file::build_file_info(path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
+                let created_at = info.thread_id.parse::<i64>().ok().filter(|value| {
+                    *value >= 0 && chrono::DateTime::from_timestamp(*value, 0).is_some()
+                });
+                Ok(ThreadEntry {
+                    file: info.filename,
+                    title: info.thread_title,
+                    post_count: info.total_lines,
+                    created_at,
+                })
+            })
+            .collect::<Fallible<Vec<_>>>()?;
+        entries.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.file.cmp(&b.file))
+        });
+        Ok(entries)
+    }
+
+    pub fn load_snapshot(&self, file: &str) -> Fallible<ThreadSnapshot> {
+        let result = self.read_posts(&ReadPostsQuery {
+            file: file.to_owned(),
+            ..Default::default()
+        })?;
+        Ok(ThreadSnapshot {
+            title: result.file_info.thread_title,
+            posts: result
+                .posts
+                .into_iter()
+                .map(|post| ViewerPost {
+                    number: post.res_num,
+                    name: post.name,
+                    datetime: post.datetime,
+                    id: post.id,
+                    body: post.body,
+                })
+                .collect(),
+        })
+    }
+
     pub fn new(dat_dir: PathBuf, subject_client: reqwest::Client) -> Self {
         Self {
             dat_dir,
