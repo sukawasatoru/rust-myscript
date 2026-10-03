@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-use crate::feature::viewer::text::ThreadView;
+use crate::feature::viewer::popover::{AnchorHit, Popover};
+use crate::feature::viewer::text::{LinkTarget, ThreadView};
 use crate::model::viewer::{
     BackendKind, DirectoryState, ThreadEntry, ThreadSnapshot, ThreadState, ViewerConfig,
     ViewerState,
@@ -51,6 +52,8 @@ pub struct App {
     pub page_height: usize,
     pub content_area: Rect,
     pub mouse_enabled: bool,
+    pub popover: Popover,
+    pub redraw: bool,
     request_id: u64,
 }
 
@@ -70,11 +73,15 @@ impl App {
             page_height: 1,
             content_area: Rect::default(),
             mouse_enabled: true,
+            popover: Popover::default(),
+            redraw: true,
             request_id: 0,
         }
     }
 
     pub fn begin_request(&mut self) -> u64 {
+        self.popover.clear();
+        self.redraw = true;
         self.request_id += 1;
         self.loading = Some((self.request_id, self.config.backend));
         self.message.clear();
@@ -115,6 +122,7 @@ impl App {
     }
 
     pub fn set_thread(&mut self, file: String, snapshot: ThreadSnapshot) {
+        self.popover.clear();
         self.remember();
         let position = self
             .state
@@ -161,6 +169,12 @@ impl App {
     }
 
     pub fn event(&mut self, event: Event) -> Action {
+        if !matches!(&event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Moved) {
+            self.redraw = true;
+        }
+        if matches!(event, Event::Resize(..) | Event::FocusLost) {
+            self.popover.clear();
+        }
         if let Event::Key(mut key) = event {
             if key.kind == KeyEventKind::Release {
                 return Action::None;
@@ -169,6 +183,7 @@ impl App {
                 return Action::Quit;
             }
             if key.code == KeyCode::F(2) {
+                self.popover.clear();
                 return if key.kind == KeyEventKind::Press {
                     Action::ToggleMouse
                 } else {
@@ -199,9 +214,19 @@ impl App {
                 }
                 return Action::None;
             }
+            if key.code == KeyCode::Esc {
+                let visible = self.popover.clear();
+                if visible {
+                    return Action::None;
+                }
+            }
             match key.code {
-                KeyCode::F(1) => self.modal = Some(self.config.backend),
+                KeyCode::F(1) => {
+                    self.popover.clear();
+                    self.modal = Some(self.config.backend);
+                }
                 KeyCode::Char(',') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.popover.clear();
                     self.modal = Some(self.config.backend)
                 }
                 KeyCode::Esc => {
@@ -230,6 +255,45 @@ impl App {
             && self.modal.is_none()
             && self.mouse_enabled
         {
+            let point = (mouse.column, mouse.row).into();
+            let in_preview = self.popover.contains(point);
+            if mouse.kind == MouseEventKind::Moved {
+                let hit = if in_preview {
+                    None
+                } else {
+                    self.anchor_at(mouse.column, mouse.row)
+                };
+                self.redraw |= self
+                    .popover
+                    .pointer(hit, in_preview, tokio::time::Instant::now());
+                return Action::None;
+            }
+            if in_preview {
+                self.popover
+                    .pointer(None, true, tokio::time::Instant::now());
+                let preview = self.popover.open.as_mut().unwrap();
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => preview.scroll(-3),
+                    MouseEventKind::ScrollDown => preview.scroll(3),
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        if preview.inner.contains(point)
+                            && let Some(line) = preview
+                                .lines
+                                .get(preview.top + usize::from(mouse.row - preview.inner.y))
+                            && let Some(link) = line.links.iter().find(|link| {
+                                link.columns
+                                    .contains(&usize::from(mouse.column - preview.inner.x))
+                            })
+                            && let LinkTarget::Url(url) = &link.target
+                        {
+                            return Action::OpenUrl(url.clone());
+                        }
+                    }
+                    _ => {}
+                }
+                // The entire frame captures input; never activate a link behind it.
+                return Action::None;
+            }
             match mouse.kind {
                 MouseEventKind::ScrollUp => self.scroll(-3),
                 MouseEventKind::ScrollDown => self.scroll(3),
@@ -243,8 +307,9 @@ impl App {
                             link.columns
                                 .contains(&usize::from(mouse.column - self.content_area.x))
                         })
+                        && let LinkTarget::Url(url) = &link.target
                     {
-                        return Action::OpenUrl(link.url.clone());
+                        return Action::OpenUrl(url.clone());
                     }
                 }
                 _ => {}
@@ -254,6 +319,7 @@ impl App {
     }
 
     fn scroll(&mut self, amount: isize) {
+        self.popover.clear();
         if let Some(thread) = &mut self.thread {
             thread.scroll(amount);
         } else if !self.entries.is_empty() {
@@ -264,6 +330,42 @@ impl App {
                 .saturating_add_signed(amount)
                 .min(self.entries.len() - 1);
             self.list.select(Some(next));
+        }
+    }
+
+    fn anchor_at(&self, column: u16, row: u16) -> Option<AnchorHit> {
+        if !self.content_area.contains((column, row).into()) {
+            return None;
+        }
+        let thread = self.thread.as_ref()?;
+        let line = thread
+            .lines
+            .get(thread.top + usize::from(row - self.content_area.y))?;
+        let link = line.links.iter().find(|link| {
+            link.columns
+                .contains(&usize::from(column - self.content_area.x))
+        })?;
+        let LinkTarget::Post(target) = link.target else {
+            return None;
+        };
+        Some(AnchorHit {
+            source_post: line.position.post_number,
+            source_offset: link.source_offset,
+            target,
+            area: Rect::new(
+                self.content_area.x + link.columns.start as u16,
+                row,
+                (link.columns.end - link.columns.start) as u16,
+                1,
+            ),
+        })
+    }
+
+    pub fn advance_popover(&mut self, now: tokio::time::Instant) {
+        if let Some(thread) = &self.thread {
+            self.redraw |= self.popover.advance(now, thread, self.content_area);
+        } else {
+            self.redraw |= self.popover.clear();
         }
     }
 }
@@ -356,7 +458,9 @@ mod tests {
             terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
             let thread = app.thread.as_ref().unwrap();
             let link = &thread.lines[thread.top].links[0];
-            let url = link.url.clone();
+            let LinkTarget::Url(url) = link.target.clone() else {
+                panic!("expected URL");
+            };
             let column = app.content_area.x + link.columns.start as u16;
             let row = app.content_area.y;
             let mouse = |kind, column, row| {
@@ -412,6 +516,125 @@ mod tests {
             ));
             app.event(key(KeyCode::Esc));
         }
+    }
+
+    #[test]
+    fn preview_routes_mouse_input_and_renders_above_the_thread() {
+        use crate::feature::viewer::ui;
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut app = app();
+        let mut snapshot = snapshot();
+        snapshot.posts[0].body = "日本語 >>5 >>99\nhttps://behind.example\n".repeat(20);
+        snapshot.posts.push(ViewerPost {
+            number: 5,
+            name: "target".into(),
+            datetime: "date".into(),
+            id: "id".into(),
+            body: format!("https://preview.example\n>>3\n{}", "長い本文\n".repeat(40)),
+        });
+        app.set_thread("new.dat".into(), snapshot);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        let mouse = |kind, column, row| {
+            Event::Mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        let hit = app.anchor_at(7, 2).unwrap();
+        assert_eq!(hit.target, 5);
+        assert!(app.anchor_at(11, 2).is_none());
+        app.redraw = false;
+        app.event(mouse(MouseEventKind::Moved, 7, 2));
+        assert!(!app.redraw);
+        assert!(app.popover.open.is_none());
+        app.advance_popover(app.popover.deadline().unwrap());
+        assert!(app.redraw);
+        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        let preview = app.popover.open.as_ref().unwrap();
+        let area = preview.area;
+        let inner = preview.inner;
+        assert_eq!(terminal.backend().buffer()[(area.x, area.y)].symbol(), "┌");
+        // A URL is behind the top border, but clicking it must not reach the thread.
+        assert!(matches!(
+            app.event(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                area.x,
+                area.y
+            )),
+            Action::None
+        ));
+        assert!(
+            matches!(app.event(mouse(MouseEventKind::Down(MouseButton::Left), inner.x, inner.y + 1)), Action::OpenUrl(url) if url == "https://preview.example")
+        );
+        app.event(mouse(MouseEventKind::Moved, inner.x, inner.y + 2));
+        assert_eq!(app.popover.deadline(), None); // No nested preview on >>3.
+        let position = app.thread.as_ref().unwrap().position();
+        app.event(mouse(MouseEventKind::ScrollDown, inner.x, inner.y));
+        assert_eq!(app.popover.open.as_ref().unwrap().top, 3);
+        assert_eq!(app.thread.as_ref().unwrap().position(), position);
+        app.event(mouse(MouseEventKind::ScrollDown, 0, 1));
+        assert!(app.popover.open.is_none());
+        assert_ne!(app.thread.as_ref().unwrap().position(), position);
+    }
+
+    #[test]
+    fn navigation_and_lifecycle_changes_cancel_pending_and_visible_previews() {
+        use crate::feature::viewer::ui;
+        use ratatui::{Terminal, backend::TestBackend};
+        for visible in [false, true] {
+            for event in [
+                key(KeyCode::Esc),
+                key(KeyCode::F(1)),
+                key(KeyCode::F(2)),
+                key(KeyCode::Down),
+                Event::Resize(40, 10),
+            ] {
+                let mut app = app();
+                let mut snapshot = snapshot();
+                snapshot.posts[0].body = ">>3\n本文".into();
+                app.set_thread("new.dat".into(), snapshot);
+                let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+                terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+                app.event(Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: 0,
+                    row: 2,
+                    modifiers: KeyModifiers::NONE,
+                }));
+                assert!(app.popover.deadline().is_some());
+                if visible {
+                    app.advance_popover(app.popover.deadline().unwrap());
+                    assert!(app.popover.open.is_some());
+                }
+                let escape = matches!(&event, Event::Key(key) if key.code == KeyCode::Esc);
+                app.event(event);
+                assert!(app.popover.open.is_none());
+                assert_eq!(app.popover.deadline(), None);
+                if visible && escape {
+                    assert!(app.thread.is_some());
+                    assert!(matches!(app.event(key(KeyCode::Esc)), Action::Save));
+                }
+            }
+        }
+        let mut app = app();
+        app.set_thread("new.dat".into(), snapshot());
+        let hit = AnchorHit {
+            source_post: 3,
+            source_offset: 0,
+            target: 3,
+            area: Rect::new(0, 2, 3, 1),
+        };
+        app.popover
+            .pointer(Some(hit.clone()), false, tokio::time::Instant::now());
+        app.begin_request();
+        assert_eq!(app.popover.deadline(), None);
+        app.popover
+            .pointer(Some(hit), false, tokio::time::Instant::now());
+        app.set_thread("new.dat".into(), snapshot());
+        assert_eq!(app.popover.deadline(), None);
     }
 
     #[test]

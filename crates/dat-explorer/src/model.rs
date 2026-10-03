@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+pub mod anchors;
 pub mod fetch;
 pub mod query;
 pub mod urls;

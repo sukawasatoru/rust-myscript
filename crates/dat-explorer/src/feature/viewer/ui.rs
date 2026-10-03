@@ -124,12 +124,36 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     );
     frame.render_widget(
         Paragraph::new(if app.thread.is_some() {
-            "↑↓/Ctrl+N/P/PgUp/PgDn: 移動  クリック: URL  r: 再読込  Esc: 一覧  F1: 設定"
+            "↑↓/Ctrl+N/P/PgUp/PgDn: 移動  ホバー: レス  クリック: URL  r: 再読込  Esc: 戻る  F1: 設定"
         } else {
             "Enter: 開く  ↑↓/Ctrl+N/P/PgUp/PgDn: 移動  r: 更新  Esc: 終了  F1: 設定"
         }),
         help,
     );
+
+    if let Some(preview) = &app.popover.open {
+        frame.render_widget(Clear, preview.area);
+        let scrolling = preview.lines.len() > usize::from(preview.inner.height);
+        let title = if scrolling {
+            format!(
+                "レス {} — {}/{} ホイール: 移動 Esc: 閉じる",
+                preview.anchor.target,
+                preview.top + 1,
+                preview.lines.len()
+            )
+        } else {
+            format!("レス {} — Esc: 閉じる", preview.anchor.target)
+        };
+        frame.render_widget(Block::bordered().title(title), preview.area);
+        let lines: Vec<_> = preview
+            .lines
+            .iter()
+            .skip(preview.top)
+            .take(usize::from(preview.inner.height))
+            .map(|line| line.text.clone())
+            .collect();
+        frame.render_widget(Paragraph::new(lines), preview.inner);
+    }
 
     if let Some(selected) = app.modal {
         let area = frame.area();

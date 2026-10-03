@@ -16,10 +16,12 @@
 
 //! Pre-wrapped lines with response-relative anchors; scrolling never performs IO.
 
-use crate::model::urls::{Link, find_links};
-use crate::model::viewer::{ReadingPosition, ThreadSnapshot};
+use crate::model::anchors::find_anchors;
+use crate::model::urls::find_links;
+use crate::model::viewer::{ReadingPosition, ThreadSnapshot, ViewerPost};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use std::collections::HashMap;
 use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -30,9 +32,22 @@ pub struct VisualLine {
     pub links: Vec<VisualLink>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkTarget {
+    Url(String),
+    Post(usize),
+}
+
+struct TextLink {
+    range: Range<usize>,
+    target: LinkTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisualLink {
     pub columns: Range<usize>,
-    pub url: String,
+    pub target: LinkTarget,
+    pub source_offset: usize,
 }
 
 pub struct ThreadView {
@@ -40,17 +55,25 @@ pub struct ThreadView {
     pub snapshot: ThreadSnapshot,
     pub lines: Vec<VisualLine>,
     pub top: usize,
+    pub post_index: HashMap<usize, usize>,
     width: u16,
     initial_position: ReadingPosition,
 }
 
 impl ThreadView {
     pub fn new(file: String, snapshot: ThreadSnapshot, position: ReadingPosition) -> Self {
+        let post_index = snapshot
+            .posts
+            .iter()
+            .enumerate()
+            .map(|(index, post)| (post.number, index))
+            .collect();
         Self {
             file,
             snapshot,
             lines: Vec::new(),
             top: 0,
+            post_index,
             width: 0,
             initial_position: position,
         }
@@ -70,27 +93,8 @@ impl ThreadView {
         let position = self.position();
         self.lines.clear();
         for post in &self.snapshot.posts {
-            let header = clean(&format!(
-                "{} {} {} ID:{}",
-                post.number, post.name, post.datetime, post.id
-            ));
-            let body = clean(&post.body);
-            let links: Vec<_> = find_links(&body)
-                .into_iter()
-                .map(|link| Link {
-                    range: link.range.start + header.len() + 1..link.range.end + header.len() + 1,
-                    url: link.url,
-                })
-                .collect();
-            let text = format!("{header}\n{body}\n");
-            wrap_post(
-                &mut self.lines,
-                &text,
-                post.number,
-                header.len(),
-                usize::from(width),
-                &links,
-            );
+            self.lines
+                .extend(render_post(post, width, &self.post_index));
         }
         self.width = width;
         self.top = self
@@ -129,6 +133,49 @@ impl ThreadView {
     }
 }
 
+pub fn render_post(
+    post: &ViewerPost,
+    width: u16,
+    post_index: &HashMap<usize, usize>,
+) -> Vec<VisualLine> {
+    let header = clean(&format!(
+        "{} {} {} ID:{}",
+        post.number, post.name, post.datetime, post.id
+    ));
+    let body = clean(&post.body);
+    let mut links: Vec<_> = find_links(&body)
+        .into_iter()
+        .map(|link| TextLink {
+            range: link.range,
+            target: LinkTarget::Url(link.url),
+        })
+        .collect();
+    links.extend(
+        find_anchors(&body)
+            .into_iter()
+            .filter(|anchor| post_index.contains_key(&anchor.post_number))
+            .map(|anchor| TextLink {
+                range: anchor.range,
+                target: LinkTarget::Post(anchor.post_number),
+            }),
+    );
+    links.sort_by_key(|link| link.range.start);
+    for link in &mut links {
+        link.range.start += header.len() + 1;
+        link.range.end += header.len() + 1;
+    }
+    let mut lines = Vec::new();
+    wrap_post(
+        &mut lines,
+        &format!("{header}\n{body}\n"),
+        post.number,
+        header.len(),
+        usize::from(width.max(1)),
+        &links,
+    );
+    lines
+}
+
 pub fn clean(text: &str) -> String {
     text.replace('\t', "    ")
         .chars()
@@ -142,7 +189,7 @@ fn wrap_post(
     post_number: usize,
     header_len: usize,
     width: usize,
-    links: &[Link],
+    links: &[TextLink],
 ) {
     let mut logical_offset = 0;
     for logical in text.split('\n') {
@@ -183,7 +230,12 @@ fn wrap_post(
     }
 }
 
-fn visual_line(text: &str, style: Style, position: ReadingPosition, links: &[Link]) -> VisualLine {
+fn visual_line(
+    text: &str,
+    style: Style,
+    position: ReadingPosition,
+    links: &[TextLink],
+) -> VisualLine {
     let mut spans = Vec::new();
     let mut visible_links = Vec::new();
     let mut cursor = 0;
@@ -207,7 +259,8 @@ fn visual_line(text: &str, style: Style, position: ReadingPosition, links: &[Lin
         ));
         visible_links.push(VisualLink {
             columns: text[..start].width()..text[..end].width(),
-            url: link.url.clone(),
+            target: link.target.clone(),
+            source_offset: link.range.start,
         });
         cursor = end;
     }
@@ -256,14 +309,14 @@ mod tests {
                 assert!(
                     line.links
                         .iter()
-                        .all(|link| link.url != "https://header.example")
+                        .all(|link| link.target != LinkTarget::Url("https://header.example".into()))
                 );
                 for link in &line.links {
                     assert!(link.columns.start < link.columns.end);
                     assert!(link.columns.end <= usize::from(width));
                     let span = line.text.spans.iter().find(|span| {
                         span.style.add_modifier.contains(Modifier::UNDERLINED)
-                            && link.url.ends_with("very/long/path?q=1&b=2")
+                            && matches!(&link.target, LinkTarget::Url(url) if url.ends_with("very/long/path?q=1&b=2"))
                     });
                     if let Some(span) = span {
                         pieces.push(span.content.to_string());
@@ -279,12 +332,64 @@ mod tests {
                     .unwrap();
                 assert_eq!(line.links[0].columns.start, "日本語    👨‍👩‍👧‍👦 ".width());
                 assert_eq!(
-                    line.links[0].url,
-                    "https://example.com/very/long/path?q=1&b=2"
+                    line.links[0].target,
+                    LinkTarget::Url("https://example.com/very/long/path?q=1&b=2".into())
                 );
-                assert_eq!(line.links[1].url, "https://5ch.io/test/read.cgi/board/123/");
+                assert_eq!(
+                    line.links[1].target,
+                    LinkTarget::Url("https://5ch.io/test/read.cgi/board/123/".into())
+                );
             }
         }
+    }
+
+    #[test]
+    fn only_existing_references_are_links_with_stable_identity_across_wrapping() {
+        let mut snapshot = snapshot();
+        snapshot.posts[0].body = "日本語\t👨‍👩‍👧‍👦 >>3 >>2 >>99 >>1-3 >>1,3".into();
+        let mut view = ThreadView::new(
+            "file.dat".into(),
+            snapshot.clone(),
+            ReadingPosition::default(),
+        );
+        let mut identity = None;
+        for width in [80, 2, 13] {
+            view.reflow(width);
+            let mut spelling = String::new();
+            for line in view
+                .lines
+                .iter()
+                .filter(|line| line.position.post_number == 1)
+            {
+                for link in &line.links {
+                    assert_eq!(link.target, LinkTarget::Post(3));
+                    assert!(link.columns.end <= usize::from(width));
+                    assert_eq!(
+                        *identity.get_or_insert(link.source_offset),
+                        link.source_offset
+                    );
+                }
+                for span in &line.text.spans {
+                    if span.style.add_modifier.contains(Modifier::UNDERLINED) {
+                        spelling.push_str(&span.content);
+                    }
+                }
+            }
+            assert_eq!(spelling, ">>3");
+        }
+        // A reload that adds the missing response activates that reference too.
+        let mut added = snapshot.posts[1].clone();
+        added.number = 2;
+        snapshot.posts.push(added);
+        let mut reloaded = ThreadView::new("file.dat".into(), snapshot, ReadingPosition::default());
+        reloaded.reflow(80);
+        assert!(
+            reloaded
+                .lines
+                .iter()
+                .flat_map(|line| &line.links)
+                .any(|link| link.target == LinkTarget::Post(2))
+        );
     }
 
     #[test]

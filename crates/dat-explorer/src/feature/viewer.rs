@@ -18,6 +18,7 @@
 
 mod app;
 mod event;
+mod popover;
 mod text;
 mod ui;
 
@@ -192,6 +193,7 @@ impl Session {
     }
 
     fn complete(&mut self, completion: Completion) {
+        self.app.redraw = true;
         match completion {
             Completion::BrowserOpened(result) => {
                 self.app.message = match result {
@@ -246,8 +248,19 @@ impl Session {
         self.request(None);
         self.app.message = startup_message;
         loop {
-            terminal.draw(|frame| ui::draw(frame, &mut self.app))?;
+            if self.app.redraw {
+                terminal.draw(|frame| ui::draw(frame, &mut self.app))?;
+                self.app.redraw = false;
+            }
+            let deadline = self.app.popover.deadline();
             tokio::select! {
+                _ = async {
+                    if let Some(deadline) = deadline {
+                        tokio::time::sleep_until(deadline).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => self.app.advance_popover(tokio::time::Instant::now()),
                 event = events.receiver.recv() => {
                     let event = event.context("terminal input stopped")??;
                     let action = self.app.event(event);
@@ -256,7 +269,7 @@ impl Session {
                 result = self.jobs.join_next(), if !self.jobs.is_empty() => {
                     match result.context("missing background task")? {
                         Ok(completion) => self.complete(completion),
-                        Err(e) => { self.app.loading = None; self.app.message = format!("読込処理失敗: {e}"); }
+                        Err(e) => { self.app.loading = None; self.app.redraw = true; self.app.message = format!("読込処理失敗: {e}"); }
                     }
                 }
                 signal = tokio::signal::ctrl_c() => { signal?; break; }
