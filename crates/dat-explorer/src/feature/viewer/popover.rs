@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//! One non-modal response preview. All deadlines are driven by the terminal loop.
+//! Nested response previews, ordered back to front. The terminal loop drives deadlines.
 
 use crate::feature::viewer::text::{ThreadView, VisualLine, render_post};
 use ratatui::layout::{Position, Rect};
@@ -59,77 +59,109 @@ impl Preview {
 
 #[derive(Default)]
 pub struct Popover {
-    pub open: Option<Preview>,
-    pending: Option<(AnchorHit, Instant)>,
-    close_at: Option<Instant>,
+    pub open: Vec<Preview>,
+    pending: Option<(usize, AnchorHit, Instant)>,
+    close_at: Option<(usize, Instant)>,
 }
 
 impl Popover {
     pub fn clear(&mut self) -> bool {
-        let visible = self.open.take().is_some();
+        self.truncate(0)
+    }
+
+    fn truncate(&mut self, keep: usize) -> bool {
+        let changed = self.open.len() > keep;
+        self.open.truncate(keep);
         self.pending = None;
         self.close_at = None;
-        visible
+        changed
     }
 
-    pub fn contains(&self, point: Position) -> bool {
+    pub fn close_deepest(&mut self) -> bool {
+        self.truncate(self.open.len().saturating_sub(1))
+    }
+
+    pub fn layer_at(&self, point: Position) -> Option<usize> {
         self.open
-            .as_ref()
-            .is_some_and(|preview| preview.area.contains(point))
+            .iter()
+            .rposition(|preview| preview.area.contains(point))
     }
 
-    pub fn pointer(&mut self, hit: Option<AnchorHit>, in_preview: bool, now: Instant) -> bool {
-        if in_preview {
-            self.close_at = None;
-            return false;
-        }
+    pub fn scroll(&mut self, layer: usize, amount: isize) {
+        // Descendant anchor coordinates become invalid when their parent scrolls.
+        self.truncate(layer + 1);
+        self.open[layer].scroll(amount);
+    }
+
+    /// `layer` identifies the frontmost preview under the pointer, or the main view.
+    pub fn pointer(&mut self, hit: Option<AnchorHit>, layer: Option<usize>, now: Instant) -> bool {
+        let depth = layer.map_or(0, |index| index + 1);
         if let Some(hit) = hit {
             if self
                 .open
-                .as_ref()
+                .get(depth)
                 .is_some_and(|preview| preview.anchor.same_anchor(&hit))
             {
-                self.close_at = None;
+                self.pending = None;
+                self.schedule_close(depth + 1, now);
                 return false;
             }
-            if self
-                .pending
-                .as_ref()
-                .is_some_and(|(anchor, _)| anchor.same_anchor(&hit))
+            // A reference back to an ancestor never creates another copy of that response.
+            if self.open[..depth]
+                .iter()
+                .any(|preview| preview.anchor.target == hit.target)
             {
+                self.pending = None;
+                self.schedule_close(depth, now);
                 return false;
             }
-            let changed = self.clear();
-            self.pending = Some((hit, now + OPEN_DELAY));
+            if let Some((pending_depth, anchor, _)) = &mut self.pending
+                && *pending_depth == depth
+                && anchor.same_anchor(&hit)
+            {
+                // Keep the deadline, but place beside the currently hovered wrapped fragment.
+                anchor.area = hit.area;
+                return false;
+            }
+            let changed = self.truncate(depth);
+            self.pending = Some((depth, hit, now + OPEN_DELAY));
             changed
         } else {
             self.pending = None;
-            if self.open.is_some() && self.close_at.is_none() {
-                self.close_at = Some(now + CLOSE_DELAY);
-            }
+            self.schedule_close(depth, now);
             false
+        }
+    }
+
+    fn schedule_close(&mut self, keep: usize, now: Instant) {
+        if keep >= self.open.len() {
+            self.close_at = None;
+        } else if self.close_at.is_none_or(|(previous, _)| previous != keep) {
+            self.close_at = Some((keep, now + CLOSE_DELAY));
         }
     }
 
     pub fn deadline(&self) -> Option<Instant> {
         self.pending
             .as_ref()
-            .map(|(_, time)| *time)
-            .or(self.close_at)
+            .map(|(_, _, time)| *time)
+            .or(self.close_at.map(|(_, time)| time))
     }
 
     pub fn advance(&mut self, now: Instant, thread: &ThreadView, content: Rect) -> bool {
-        if self.close_at.is_some_and(|deadline| deadline <= now) {
-            return self.clear();
+        if let Some((keep, deadline)) = self.close_at
+            && deadline <= now
+        {
+            return self.truncate(keep);
         }
         if !self
             .pending
             .as_ref()
-            .is_some_and(|(_, deadline)| *deadline <= now)
+            .is_some_and(|(_, _, deadline)| *deadline <= now)
         {
             return false;
         }
-        let (anchor, _) = self.pending.take().unwrap();
+        let (depth, anchor, _) = self.pending.take().unwrap();
         let Some(&index) = thread.post_index.get(&anchor.target) else {
             return false;
         };
@@ -155,7 +187,8 @@ impl Popover {
         }
         area.height = height;
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-        self.open = Some(Preview {
+        self.open.truncate(depth);
+        self.open.push(Preview {
             anchor,
             area,
             inner,
@@ -201,13 +234,16 @@ mod tests {
             "test.dat".into(),
             ThreadSnapshot {
                 title: String::new(),
-                posts: vec![ViewerPost {
-                    number: 3,
-                    name: String::new(),
-                    datetime: String::new(),
-                    id: String::new(),
-                    body: "本文\n".repeat(50),
-                }],
+                posts: [3, 4, 5, 6]
+                    .into_iter()
+                    .map(|number| ViewerPost {
+                        number,
+                        name: String::new(),
+                        datetime: String::new(),
+                        id: String::new(),
+                        body: "本文\n".repeat(50),
+                    })
+                    .collect(),
             },
             ReadingPosition::default(),
         )
@@ -228,21 +264,23 @@ mod tests {
         let content = Rect::new(0, 1, 80, 24);
         let thread = thread();
         let mut state = Popover::default();
-        state.pointer(Some(hit()), false, now);
+        state.pointer(Some(hit()), None, now);
         assert!(!state.advance(now, &thread, content));
-        state.pointer(None, false, now);
+        state.pointer(None, None, now);
         assert_eq!(state.deadline(), None);
-        state.pointer(Some(hit()), false, now);
+        state.pointer(Some(hit()), None, now);
         let mut fragment = hit();
         fragment.area.y += 1;
-        state.pointer(Some(fragment), false, now + Duration::from_millis(100));
+        state.pointer(Some(fragment), None, now + Duration::from_millis(100));
         assert_eq!(state.deadline(), Some(now + OPEN_DELAY));
         assert!(state.advance(now + OPEN_DELAY, &thread, content));
-        state.pointer(None, false, now + OPEN_DELAY);
-        state.pointer(None, true, now + OPEN_DELAY + Duration::from_millis(100));
+        assert_eq!(state.open[0].anchor.area.y, hit().area.y + 1);
+        assert!(!state.open[0].area.intersects(state.open[0].anchor.area));
+        state.pointer(None, None, now + OPEN_DELAY);
+        state.pointer(None, Some(0), now + OPEN_DELAY + Duration::from_millis(100));
         assert_eq!(state.deadline(), None);
-        assert!(state.open.is_some());
-        let preview = state.open.as_mut().unwrap();
+        assert_eq!(state.open.len(), 1);
+        let preview = state.open.last_mut().unwrap();
         preview.scroll(isize::MAX);
         assert_eq!(
             preview.top,
@@ -250,9 +288,107 @@ mod tests {
         );
         preview.scroll(isize::MIN);
         assert_eq!(preview.top, 0);
-        state.pointer(None, false, now + OPEN_DELAY);
+        state.pointer(None, None, now + OPEN_DELAY);
         assert!(state.advance(now + OPEN_DELAY + CLOSE_DELAY, &thread, content));
-        assert!(state.open.is_none());
+        assert!(state.open.is_empty());
+    }
+
+    #[test]
+    fn nested_deadlines_preserve_ancestors_and_close_only_the_departed_branch() {
+        let mut now = Instant::now();
+        let thread = thread();
+        let content = Rect::new(0, 1, 100, 32);
+        let mut state = Popover::default();
+        let mut anchors = Vec::new();
+        for depth in 0..3 {
+            let anchor = AnchorHit {
+                source_post: if depth == 0 { 10 } else { depth + 2 },
+                target: depth + 3,
+                area: Rect::new(8 + depth as u16, 3 + depth as u16 * 3, 3, 1),
+                ..hit()
+            };
+            state.pointer(Some(anchor.clone()), depth.checked_sub(1), now);
+            now += OPEN_DELAY;
+            assert!(state.advance(now, &thread, content));
+            assert_eq!(state.open.len(), depth + 1);
+            anchors.push(anchor);
+        }
+        assert!(state.open[0].area.intersects(state.open[1].area));
+        assert!(!state.open[1].area.intersects(anchors[1].area));
+        let point = (state.open[2].area.x, state.open[2].area.y).into();
+        assert_eq!(state.layer_at(point), Some(2));
+
+        // Returning to the child-opening anchor keeps the child, but schedules its child away.
+        state.pointer(Some(anchors[1].clone()), Some(0), now);
+        assert_eq!(state.deadline(), Some(now + CLOSE_DELAY));
+        state.pointer(None, Some(2), now + Duration::from_millis(100));
+        assert_eq!(state.deadline(), None); // Crossing back into the grandchild cancels closing.
+        state.pointer(Some(anchors[1].clone()), Some(0), now);
+        now += CLOSE_DELAY;
+        assert!(state.advance(now, &thread, content));
+        assert_eq!(state.open.len(), 2);
+
+        state.pointer(None, Some(0), now);
+        now += CLOSE_DELAY;
+        assert!(state.advance(now, &thread, content));
+        assert_eq!(state.open.len(), 1);
+        state.pointer(None, None, now);
+        now += CLOSE_DELAY;
+        assert!(state.advance(now, &thread, content));
+        assert!(state.open.is_empty());
+    }
+
+    #[test]
+    fn siblings_pending_cancellation_cycles_and_escape() {
+        let mut now = Instant::now();
+        let content = Rect::new(0, 1, 80, 24);
+        let thread = thread();
+        let mut state = Popover::default();
+        state.pointer(Some(hit()), None, now);
+        now += OPEN_DELAY;
+        state.advance(now, &thread, content);
+        let child = AnchorHit {
+            source_post: 3,
+            target: 4,
+            area: Rect::new(9, 6, 3, 1),
+            ..hit()
+        };
+        state.pointer(Some(child.clone()), Some(0), now);
+        state.pointer(None, Some(0), now);
+        assert_eq!(state.deadline(), None);
+        state.pointer(Some(child.clone()), Some(0), now);
+        now += OPEN_DELAY;
+        state.advance(now, &thread, content);
+        assert_eq!(state.open.len(), 2);
+        // A -> B -> A and B -> B must never grow the stack.
+        for target in [3, 4] {
+            state.pointer(
+                Some(AnchorHit {
+                    source_post: 4,
+                    target,
+                    ..child.clone()
+                }),
+                Some(1),
+                now,
+            );
+            assert_eq!(state.deadline(), None);
+            assert_eq!(state.open.len(), 2);
+        }
+        let sibling = AnchorHit {
+            source_offset: 99,
+            target: 5,
+            ..child
+        };
+        assert!(state.pointer(Some(sibling), Some(0), now));
+        assert_eq!(state.open.len(), 1);
+        now += OPEN_DELAY;
+        state.advance(now, &thread, content);
+        assert_eq!(state.open[1].anchor.target, 5);
+        assert!(state.close_deepest());
+        assert_eq!(state.open.len(), 1);
+        assert_eq!(state.deadline(), None);
+        assert!(state.close_deepest());
+        assert!(!state.close_deepest());
     }
 
     #[test]

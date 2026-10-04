@@ -215,7 +215,7 @@ impl App {
                 return Action::None;
             }
             if key.code == KeyCode::Esc {
-                let visible = self.popover.clear();
+                let visible = self.popover.close_deepest();
                 if visible {
                     return Action::None;
                 }
@@ -256,25 +256,22 @@ impl App {
             && self.mouse_enabled
         {
             let point = (mouse.column, mouse.row).into();
-            let in_preview = self.popover.contains(point);
+            let layer = self.popover.layer_at(point);
             if mouse.kind == MouseEventKind::Moved {
-                let hit = if in_preview {
-                    None
-                } else {
-                    self.anchor_at(mouse.column, mouse.row)
-                };
+                let hit = self.anchor_at(mouse.column, mouse.row);
                 self.redraw |= self
                     .popover
-                    .pointer(hit, in_preview, tokio::time::Instant::now());
+                    .pointer(hit, layer, tokio::time::Instant::now());
                 return Action::None;
             }
-            if in_preview {
+            if let Some(layer) = layer {
+                let hit = self.anchor_at(mouse.column, mouse.row);
                 self.popover
-                    .pointer(None, true, tokio::time::Instant::now());
-                let preview = self.popover.open.as_mut().unwrap();
+                    .pointer(hit, Some(layer), tokio::time::Instant::now());
+                let preview = &self.popover.open[layer];
                 match mouse.kind {
-                    MouseEventKind::ScrollUp => preview.scroll(-3),
-                    MouseEventKind::ScrollDown => preview.scroll(3),
+                    MouseEventKind::ScrollUp => self.popover.scroll(layer, -3),
+                    MouseEventKind::ScrollDown => self.popover.scroll(layer, 3),
                     MouseEventKind::Down(MouseButton::Left) => {
                         if preview.inner.contains(point)
                             && let Some(line) = preview
@@ -334,17 +331,22 @@ impl App {
     }
 
     fn anchor_at(&self, column: u16, row: u16) -> Option<AnchorHit> {
-        if !self.content_area.contains((column, row).into()) {
+        let point = (column, row).into();
+        let (lines, top, area) = if let Some(layer) = self.popover.layer_at(point) {
+            let preview = &self.popover.open[layer];
+            (&preview.lines, preview.top, preview.inner)
+        } else {
+            let thread = self.thread.as_ref()?;
+            (&thread.lines, thread.top, self.content_area)
+        };
+        if !area.contains(point) {
             return None;
         }
-        let thread = self.thread.as_ref()?;
-        let line = thread
-            .lines
-            .get(thread.top + usize::from(row - self.content_area.y))?;
-        let link = line.links.iter().find(|link| {
-            link.columns
-                .contains(&usize::from(column - self.content_area.x))
-        })?;
+        let line = lines.get(top + usize::from(row - area.y))?;
+        let link = line
+            .links
+            .iter()
+            .find(|link| link.columns.contains(&usize::from(column - area.x)))?;
         let LinkTarget::Post(target) = link.target else {
             return None;
         };
@@ -353,7 +355,7 @@ impl App {
             source_offset: link.source_offset,
             target,
             area: Rect::new(
-                self.content_area.x + link.columns.start as u16,
+                area.x + link.columns.start as u16,
                 row,
                 (link.columns.end - link.columns.start) as u16,
                 1,
@@ -549,11 +551,11 @@ mod tests {
         app.redraw = false;
         app.event(mouse(MouseEventKind::Moved, 7, 2));
         assert!(!app.redraw);
-        assert!(app.popover.open.is_none());
+        assert!(app.popover.open.is_empty());
         app.advance_popover(app.popover.deadline().unwrap());
         assert!(app.redraw);
         terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
-        let preview = app.popover.open.as_ref().unwrap();
+        let preview = app.popover.open.last().unwrap();
         let area = preview.area;
         let inner = preview.inner;
         assert_eq!(terminal.backend().buffer()[(area.x, area.y)].symbol(), "┌");
@@ -570,14 +572,122 @@ mod tests {
             matches!(app.event(mouse(MouseEventKind::Down(MouseButton::Left), inner.x, inner.y + 1)), Action::OpenUrl(url) if url == "https://preview.example")
         );
         app.event(mouse(MouseEventKind::Moved, inner.x, inner.y + 2));
-        assert_eq!(app.popover.deadline(), None); // No nested preview on >>3.
+        assert!(app.popover.deadline().is_some()); // >>3 opens a child after its delay.
         let position = app.thread.as_ref().unwrap().position();
         app.event(mouse(MouseEventKind::ScrollDown, inner.x, inner.y));
-        assert_eq!(app.popover.open.as_ref().unwrap().top, 3);
+        assert_eq!(app.popover.open.last().unwrap().top, 3);
         assert_eq!(app.thread.as_ref().unwrap().position(), position);
         app.event(mouse(MouseEventKind::ScrollDown, 0, 1));
-        assert!(app.popover.open.is_none());
+        assert!(app.popover.open.is_empty());
         assert_ne!(app.thread.as_ref().unwrap().position(), position);
+    }
+
+    #[test]
+    fn nested_previews_overlap_route_to_frontmost_and_preserve_parent_scroll() {
+        use crate::feature::viewer::ui;
+        use ratatui::{Terminal, backend::TestBackend};
+
+        fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
+            Event::Mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        }
+
+        fn anchor_position(app: &App, layer: Option<usize>, target: usize) -> (u16, u16) {
+            let (lines, top, area) = if let Some(layer) = layer {
+                let preview = &app.popover.open[layer];
+                (&preview.lines, preview.top, preview.inner)
+            } else {
+                let thread = app.thread.as_ref().unwrap();
+                (&thread.lines, thread.top, app.content_area)
+            };
+            for (row, line) in lines
+                .iter()
+                .skip(top)
+                .take(usize::from(area.height))
+                .enumerate()
+            {
+                if let Some(link) = line
+                    .links
+                    .iter()
+                    .find(|link| link.target == LinkTarget::Post(target))
+                {
+                    return (area.x + link.columns.start as u16, area.y + row as u16);
+                }
+            }
+            panic!("visible anchor not found");
+        }
+
+        let mut app = app();
+        let mut snapshot = snapshot();
+        snapshot.posts[0].body = ">>5".into();
+        for (number, body) in [
+            (5, ">>7 >>9\nhttps://parent.example"),
+            (7, ">>9\nhttps://child.example"),
+            (9, ">>5\nhttps://grandchild.example"),
+        ] {
+            snapshot.posts.push(ViewerPost {
+                number,
+                name: "target".into(),
+                datetime: "date".into(),
+                id: "id".into(),
+                body: format!("{body}\n{}", "長い本文\n".repeat(40)),
+            });
+        }
+        app.set_thread("new.dat".into(), snapshot);
+        let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        for (layer, target) in [(None, 5), (Some(0), 7), (Some(1), 9)] {
+            let (x, y) = anchor_position(&app, layer, target);
+            app.event(mouse(MouseEventKind::Moved, x, y));
+            app.advance_popover(app.popover.deadline().unwrap());
+            terminal.draw(|frame| ui::draw(frame, &mut app)).unwrap();
+        }
+        assert_eq!(app.popover.open.len(), 3);
+        assert!(
+            app.popover.open[0]
+                .area
+                .intersects(app.popover.open[1].area)
+        );
+        assert!(
+            app.popover.open[1]
+                .area
+                .intersects(app.popover.open[2].area)
+        );
+        let grandchild = &app.popover.open[2];
+        let area = grandchild.area;
+        let inner = grandchild.inner;
+        assert_eq!(terminal.backend().buffer()[(area.x, area.y)].symbol(), "┌");
+        assert!(
+            matches!(app.event(mouse(MouseEventKind::Down(MouseButton::Left), inner.x, inner.y + 2)), Action::OpenUrl(url) if url == "https://grandchild.example")
+        );
+        // An ancestor reference is recognized but creates no duplicate preview.
+        let (x, y) = anchor_position(&app, Some(2), 5);
+        app.event(mouse(MouseEventKind::Moved, x, y));
+        assert_eq!(app.popover.deadline(), None);
+        assert_eq!(app.popover.open.len(), 3);
+        app.event(mouse(MouseEventKind::ScrollDown, inner.x, inner.y));
+        assert_eq!(app.popover.open[2].top, 3);
+        assert_eq!(app.popover.open[1].top, 0);
+        assert_eq!(app.popover.open[0].top, 0);
+        assert_eq!(app.thread.as_ref().unwrap().top, 0);
+        app.event(key(KeyCode::Esc));
+        assert_eq!(app.popover.open.len(), 2);
+        app.event(key(KeyCode::Esc));
+        assert_eq!(app.popover.open.len(), 1);
+        assert!(app.thread.is_some());
+        // Reopen a child, then scroll the exposed parent: descendants close, only parent scrolls.
+        let (x, y) = anchor_position(&app, Some(0), 7);
+        app.event(mouse(MouseEventKind::Moved, x, y));
+        app.advance_popover(app.popover.deadline().unwrap());
+        assert_eq!(app.popover.open.len(), 2);
+        app.event(mouse(MouseEventKind::ScrollDown, x, y));
+        assert_eq!(app.popover.open.len(), 1);
+        assert_eq!(app.popover.open[0].top, 3);
+        assert_eq!(app.popover.deadline(), None);
     }
 
     #[test]
@@ -607,11 +717,11 @@ mod tests {
                 assert!(app.popover.deadline().is_some());
                 if visible {
                     app.advance_popover(app.popover.deadline().unwrap());
-                    assert!(app.popover.open.is_some());
+                    assert!(!app.popover.open.is_empty());
                 }
                 let escape = matches!(&event, Event::Key(key) if key.code == KeyCode::Esc);
                 app.event(event);
-                assert!(app.popover.open.is_none());
+                assert!(app.popover.open.is_empty());
                 assert_eq!(app.popover.deadline(), None);
                 if visible && escape {
                     assert!(app.thread.is_some());
@@ -628,11 +738,11 @@ mod tests {
             area: Rect::new(0, 2, 3, 1),
         };
         app.popover
-            .pointer(Some(hit.clone()), false, tokio::time::Instant::now());
+            .pointer(Some(hit.clone()), None, tokio::time::Instant::now());
         app.begin_request();
         assert_eq!(app.popover.deadline(), None);
         app.popover
-            .pointer(Some(hit), false, tokio::time::Instant::now());
+            .pointer(Some(hit), None, tokio::time::Instant::now());
         app.set_thread("new.dat".into(), snapshot());
         assert_eq!(app.popover.deadline(), None);
     }

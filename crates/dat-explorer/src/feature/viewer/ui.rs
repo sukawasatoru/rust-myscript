@@ -131,7 +131,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         help,
     );
 
-    if let Some(preview) = &app.popover.open {
+    for preview in &app.popover.open {
         frame.render_widget(Clear, preview.area);
         let scrolling = preview.lines.len() > usize::from(preview.inner.height);
         let title = if scrolling {
