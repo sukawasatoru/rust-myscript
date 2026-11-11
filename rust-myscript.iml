@@ -51,6 +51,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/temperature-sensor/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/mcp-memo/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/dat-explorer/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mcp-pplx/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

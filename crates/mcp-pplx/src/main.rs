@@ -14,7 +14,99 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+//! # mcp-pplx
+//!
+//! A stdio MCP server for the Perplexity Search API.
+//!
+//! ## Registering an API key
+//!
+//! Register the key once, using the same OS and user account that will run the
+//! MCP server. Input is hidden. Run the same command to replace an existing key.
+//!
+//! ```sh
+//! mcp-pplx auth set
+//! ```
+//!
+//! Start the server with the `serve` subcommand. Set the MCP client's `command`
+//! to `mcp-pplx` and its `args` to `["serve"]`. Running without a subcommand
+//! displays help instead of starting the server.
+//!
+//! ```sh
+//! mcp-pplx serve
+//! ```
+//!
+//! API key precedence is `serve --api-key` > `PERPLEXITY_API_KEY` > the stored key.
+//! An option or environment override bypasses credential storage entirely and is
+//! not saved. An empty or invalid override is an error, not a request to fall back.
+//! If no override or stored key is available, the server prints registration
+//! instructions to stderr and exits with a nonzero status.
+//!
+//! To store an existing environment variable without displaying the key, pipe it
+//! to `auth set --stdin`. This reads the first line and removes only its trailing
+//! LF or CRLF.
+//!
+//! ```sh
+//! # bash / zsh
+//! printf '%s\n' "$PERPLEXITY_API_KEY" | mcp-pplx auth set --stdin
+//! unset PERPLEXITY_API_KEY
+//! ```
+//!
+//! ```powershell
+//! $env:PERPLEXITY_API_KEY | mcp-pplx auth set --stdin
+//! Remove-Item Env:PERPLEXITY_API_KEY
+//! ```
+//!
+//! After migration, also remove keys from shell startup files and MCP client
+//! configuration. Running servers retain the key in memory, so restart them after
+//! updating or deleting the stored key.
+//!
+//! ```sh
+//! mcp-pplx auth delete
+//! ```
+//!
+//! ## Storage
+//!
+//! `keyring-core` provides the common API. The backend is selected for the build's
+//! target OS. The service is `rust-myscript.mcp-pplx` and the user is
+//! `perplexity-api-key`.
+//!
+//! | Platform | Backend | Storage location |
+//! | --- | --- | --- |
+//! | Windows | `windows-native-keyring-store` | Windows Credential Manager (generic credentials) |
+//! | macOS | `apple-native-keyring-store`, `keychain` feature | macOS Keychain |
+//! | Linux / WSL (Ubuntu 24 or later) | `db-keystore` | `$XDG_STATE_HOME/mcp-pplx/credentials.db`, or `~/.local/state/mcp-pplx/credentials.db` if unset |
+//!
+//! The Linux directory is obtained by constructing
+//! `directories::ProjectDirs::from("com", "sukawasatoru", "mcp-pplx")`
+//! and calling `state_dir()` on the resulting `ProjectDirs`.
+//! A dedicated database keeps storage settings, backups, and deletion independent
+//! of other applications using `db-keystore`.
+//!
+//! On Linux, SQLite stores the key **in plaintext, without encryption**. The
+//! dedicated directory has mode `0700`, restricting access to the database and
+//! auxiliary files such as the WAL to its owner. On WSL, keep this directory on
+//! the Linux filesystem, rather than moving it to `/mnt/c` or a similar mount.
+//! The Linux backend does not use Secret Service, D-Bus, or Windows Credential
+//! Manager. Running the Windows executable from WSL uses Windows storage instead.
+//!
+//! `db-keystore` uses Turso rather than the OS SQLite library. Its I/O backend is
+//! explicitly set to `syscall`, so `io_uring` support is not required.
+//!
+//! To build from source on Ubuntu, install C/C++ build tools in addition to Rust:
+//!
+//! ```sh
+//! sudo apt install build-essential pkg-config cmake libclang-dev
+//! cargo build --release --locked -p mcp-pplx
+//! ```
+//!
+//! References: [keyring-core](https://docs.rs/keyring-core/1.0.1/keyring_core/),
+//! [Windows](https://docs.rs/windows-native-keyring-store/1.1.0/windows_native_keyring_store/),
+//! [macOS](https://docs.rs/apple-native-keyring-store/1.0.2/apple_native_keyring_store/),
+//! [db-keystore](https://docs.rs/db-keystore/0.6.0/db_keystore/).
+
+mod credentials;
+
+use clap::{Parser, Subcommand};
 use reqwest::header;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -34,10 +126,37 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Perplexity Search API MCP server
 #[derive(Parser)]
+#[command(arg_required_else_help = true)]
 struct Opt {
-    /// API Key for Perplexity AI
-    #[arg(long, env = "PERPLEXITY_API_KEY")]
-    api_key: String,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Start the stdio MCP server
+    Serve {
+        /// Perplexity API key (overrides the environment and stored key)
+        #[arg(long, env = "PERPLEXITY_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+    },
+    /// Manage the stored Perplexity API key
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Save or replace the API key (hidden terminal input by default)
+    Set {
+        /// Read one line from stdin instead of prompting
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Delete the saved API key
+    Delete,
 }
 
 /// Amount of content to extract from each page.
@@ -324,7 +443,7 @@ fn build_client() -> Fallible<reqwest::Client> {
             " (https://github.com/sukawasatoru/rust-myscript/)"
         ))
         .build()
-        .context("HTTP クライアントの初期化に失敗しました")
+        .context("Failed to initialize the HTTP client")
 }
 
 async fn run_mcp_server(api_key: String) {
@@ -351,14 +470,48 @@ async fn run_mcp_server(api_key: String) {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Fallible<()> {
     tracing_subscriber::fmt()
         .with_max_level(Level::INFO)
         .with_writer(std::io::stderr)
         .init();
 
     let opt = Opt::parse();
-    run_mcp_server(opt.api_key).await;
+    // Credential backends and terminal input are synchronous.
+    let api_key = tokio::task::spawn_blocking(move || -> Fallible<Option<String>> {
+        match opt.command {
+            Command::Serve { api_key } => {
+                credentials::resolve(api_key, || credentials::load(&credentials::entry()?))
+                    .map(Some)
+            }
+            Command::Auth { command } => {
+                let entry = credentials::entry()?;
+                match command {
+                    AuthCommand::Set { stdin } => {
+                        let key = if stdin {
+                            credentials::read_key(std::io::stdin().lock())?
+                        } else {
+                            rpassword::prompt_password("Perplexity API key: ")?
+                        };
+                        credentials::save(&entry, &key)?;
+                        eprintln!("API key saved.");
+                    }
+                    AuthCommand::Delete => {
+                        entry
+                            .delete_credential()
+                            .context("Failed to delete the API key")?;
+                        eprintln!("API key deleted.");
+                    }
+                }
+                Ok(None)
+            }
+        }
+    })
+    .await??;
+    if let Some(api_key) = api_key {
+        run_mcp_server(api_key).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -372,6 +525,40 @@ mod tests {
     #[test]
     fn struct_opt() {
         Opt::command().debug_assert();
+    }
+
+    #[test]
+    fn auth_commands_and_serve_mode() {
+        let err = Opt::try_parse_from(["mcp-pplx"]).err().unwrap();
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        assert!(matches!(
+            Opt::try_parse_from(["mcp-pplx", "serve"]).unwrap().command,
+            Command::Serve { .. }
+        ));
+        for (args, expected_stdin) in [
+            (vec!["mcp-pplx", "auth", "set"], false),
+            (vec!["mcp-pplx", "auth", "set", "--stdin"], true),
+        ] {
+            let Command::Auth {
+                command: AuthCommand::Set { stdin },
+            } = Opt::try_parse_from(args).unwrap().command
+            else {
+                panic!("expected auth set")
+            };
+            assert_eq!(stdin, expected_stdin);
+        }
+        assert!(matches!(
+            Opt::try_parse_from(["mcp-pplx", "auth", "delete"])
+                .unwrap()
+                .command,
+            Command::Auth {
+                command: AuthCommand::Delete
+            }
+        ));
+        assert!(Opt::try_parse_from(["mcp-pplx", "--api-key", "test-key"]).is_err());
     }
 
     #[test]

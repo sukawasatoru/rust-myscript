@@ -10,6 +10,8 @@ edition.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+keyring-core = "=1.0.1"
+rpassword = "=7.5.5"
 reqwest = { workspace = true }
 rmcp = { workspace = true, features = ["schemars", "transport-io", "server", "client"] }
 rust-myscript = { workspace = true }
@@ -18,3 +20,16 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+db-keystore = "=0.6.0"
+directories = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
