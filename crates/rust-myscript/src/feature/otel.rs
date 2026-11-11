@@ -81,7 +81,7 @@ fn create_resource(name: &'static str) -> Resource {
                 ),
                 KeyValue::new(TELEMETRY_SDK_LANGUAGE, "rust"),
                 KeyValue::new(TELEMETRY_SDK_NAME, "opentelemetry"),
-                KeyValue::new(TELEMETRY_SDK_VERSION, "0.32.0"),
+                KeyValue::new(TELEMETRY_SDK_VERSION, "0.33.1"),
                 KeyValue::new(
                     OS_TYPE,
                     if cfg!(target_os = "macos") {

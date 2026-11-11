@@ -40,7 +40,7 @@ use url::Url;
 
 /// Check new crate from specified Cargo.toml.
 ///
-/// Requires system SQLite 3.34.1 or newer on Linux/macOS. Windows uses bundled SQLite.
+/// Requires system SQLite 3.45.3 or newer on Linux/macOS. Windows uses bundled SQLite.
 #[derive(Parser)]
 #[clap(name = "crate-checker", group = clap::ArgGroup::new("fetch").multiple(false))]
 struct Opt {

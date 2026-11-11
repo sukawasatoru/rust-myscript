@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 /// Decode a SQLite user_version as major.minor.patch.
 ///
-/// Requires system SQLite 3.34.1 or newer on Linux/macOS. Windows uses bundled SQLite.
+/// Requires system SQLite 3.45.3 or newer on Linux/macOS. Windows uses bundled SQLite.
 #[derive(Debug, Parser)]
 #[command(group = ArgGroup::new("source").required(true))]
 struct Opt {

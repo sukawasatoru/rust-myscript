@@ -146,11 +146,11 @@ mod tests {
     #[test]
     fn is_registry_not_found_matches_file_and_path_not_found() {
         let file_not_found =
-            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(2));
+            windows_result::Error::from_hresult(windows_result::WIN32_ERROR(2).to_hresult());
         let path_not_found =
-            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(3));
+            windows_result::Error::from_hresult(windows_result::WIN32_ERROR(3).to_hresult());
         let access_denied =
-            windows_result::Error::from_hresult(windows_result::HRESULT::from_win32(5));
+            windows_result::Error::from_hresult(windows_result::WIN32_ERROR(5).to_hresult());
         assert!(is_registry_not_found(&file_not_found));
         assert!(is_registry_not_found(&path_not_found));
         assert!(!is_registry_not_found(&access_denied));
